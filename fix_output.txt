@@ -1,0 +1,26 @@
+﻿[DB] MySQL Pool initialized for pop_db on localhost
+≡ƒöº FIXING ROLE & ADMIN LINK ISSUES
+
+============================================================
+
+1∩╕ÅΓâú Fixing User ID 47 role from employer ΓåÆ admin
+[DB] Audit Logs table checked/created
+Γ£à User 47 role updated to ADMIN
+
+2∩╕ÅΓâú Creating admin records in admins table
+node : Γ¥î ERROR: Duplicate 
+entry '44' for key 'user_id'
+At line:1 char:1
++ node src/scripts/fix_admin
+_roles.js 2>&1 | Out-File 
+-FilePath fix_out ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~
+    + CategoryInfo          
+    : NotSpecified: (Γ¥î E  
+  RROR: Dupl...r key 'use   
+ r_id':String) [], Remot    
+eException
+    + FullyQualifiedErrorId 
+    : NativeCommandError
+ 

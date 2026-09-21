@@ -1,0 +1,22 @@
+const mysql = require('mysql2/promise');
+require('dotenv').config();
+
+(async () => {
+    let connection;
+    try {
+        connection = await mysql.createConnection({
+            host: process.env.DB_HOST || 'localhost',
+            user: process.env.DB_USER || 'root',
+            password: process.env.DB_PASSWORD || '',
+            database: process.env.DB_NAME || 'pop_db'
+        });
+
+        const [rows] = await connection.query('DESCRIBE employers');
+        const hasLogo = rows.some(r => r.Field === 'company_logo');
+        console.log('Has company_logo:', hasLogo);
+    } catch (err) {
+        console.error('Error:', err.message);
+    } finally {
+        if (connection) await connection.end();
+    }
+})();
