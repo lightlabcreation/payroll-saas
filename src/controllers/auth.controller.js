@@ -99,12 +99,15 @@ const register = async (req, res, next) => {
     // Generate tokens
     const tokens = generateTokens(user);
 
-    // Send Welcome Email via Brevo asynchronously
+    // Send Welcome Email with Login Credentials asynchronously
     emailService.sendWelcomeEmail({
       email: normalizedEmail,
       name: name.trim(),
-      companyName: `${name}'s Company`,
-      planName: userRole.toUpperCase() + ' Account'
+      password: password,
+      role: userRole,
+      companyName: `${name.trim()}'s Workspace`,
+      planName: userRole.toUpperCase() + ' Plan',
+      portalUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/login`
     }).catch(err => console.error('[BREVO] Error sending registration welcome email:', err.message));
 
     // Audit Log Registration

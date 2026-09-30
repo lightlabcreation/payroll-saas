@@ -230,19 +230,25 @@ const getSalaryHistory = async (req, res, next) => {
  */
 const createBill = async (req, res, next) => {
   try {
-    const { title, amount, description } = req.body;
+    const { title, name, amount, description, bill_number, billNumber, due_date, dueDate, category, auto_deduction, autoDeduction } = req.body;
     const [emp] = await db.query("SELECT id, employer_id FROM employees WHERE user_id = ?", [req.user.id]);
     if (emp.length === 0) return res.status(404).json({ success: false, message: 'Employee not found' });
 
+    const billName = title || name || 'Bill';
+    const billNum = bill_number || billNumber || `${Date.now().toString().slice(-6)}`;
+    const billDueDate = due_date || dueDate || new Date().toISOString().split('T')[0];
+    const billCategory = category || 'Utilities';
+    const billAutoDeduction = (auto_deduction || autoDeduction) ? 1 : 0;
+
     await db.query(`
-      INSERT INTO bills (employee_id, employer_id, name, amount, description, status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, 'pending', NOW(), NOW())
-    `, [emp[0].id, emp[0].employer_id, title, amount, description]);
+      INSERT INTO bills (employee_id, employer_id, name, bill_number, amount, description, status, due_date, category, auto_deduction, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, NOW(), NOW())
+    `, [emp[0].id, emp[0].employer_id, billName, billNum, amount, description, billDueDate, billCategory, billAutoDeduction]);
 
     auditService.log({
       userId: req.user.id,
       action: 'SUBMIT_BILL',
-      details: `Employee submitted reimbursement claim "${title}" of ₹${parseFloat(amount || 0).toLocaleString()}`,
+      details: `Employee submitted reimbursement claim "${billName}" of ₹${parseFloat(amount || 0).toLocaleString()}`,
       ipAddress: req.ip || req.socket?.remoteAddress
     });
 

@@ -39,12 +39,22 @@ const getDashboard = async (req, res, next) => {
 };
 
 /**
- * Get Payment Status
+ * Get Payment Status & Profile Details
  */
 const getPaymentStatus = async (req, res, next) => {
   try {
-    const [rows] = await db.query('SELECT * FROM vendors WHERE user_id = ?', [req.user.id]);
-    const vendor = rows[0];
+    const [rows] = await db.query(`
+      SELECT v.*, u.name as u_name, u.email as u_email, u.phone as u_phone
+      FROM vendors v
+      LEFT JOIN users u ON v.user_id = u.id
+      WHERE v.user_id = ?
+    `, [req.user.id]);
+    
+    let vendor = rows[0];
+    if (!vendor) {
+      const [fallback] = await db.query('SELECT * FROM vendors WHERE user_id = ?', [req.user.id]);
+      vendor = fallback[0];
+    }
 
     if (!vendor) {
       return res.status(404).json({
@@ -56,11 +66,15 @@ const getPaymentStatus = async (req, res, next) => {
     res.json({
       success: true,
       data: {
-        payment_status: vendor.payment_status,
-        service_type: vendor.service_type,
-        address: vendor.address,
-        phone: vendor.phone,
-        contact_person: vendor.contact_person,
+        company_name: vendor.company_name || '',
+        contact_person: vendor.contact_person || vendor.u_name || '',
+        email: vendor.email || vendor.u_email || req.user.email || '',
+        phone: vendor.phone || vendor.u_phone || req.user.phone || '',
+        address: vendor.address || '',
+        service_type: vendor.service_type || '',
+        payment_status: vendor.payment_status || 'pending',
+        tax_id: vendor.tax_id || '',
+        description: vendor.description || vendor.service_type || '',
       },
     });
   } catch (error) {
@@ -69,7 +83,7 @@ const getPaymentStatus = async (req, res, next) => {
 };
 
 /**
- * Update Contract Details
+ * Update Contract & Profile Details
  */
 const updateContractDetails = async (req, res, next) => {
   try {
@@ -83,33 +97,64 @@ const updateContractDetails = async (req, res, next) => {
       });
     }
 
-    const { service_type, address, phone, contact_person } = req.body;
+    const { company_name, contact_person, email, phone, address, service_type, description, tax_id } = req.body;
 
     const updates = [];
     const params = [];
-    if (service_type !== undefined) { updates.push('service_type = ?'); params.push(service_type); }
-    if (address !== undefined) { updates.push('address = ?'); params.push(address); }
-    if (phone !== undefined) { updates.push('phone = ?'); params.push(phone); }
+    if (company_name !== undefined) { updates.push('company_name = ?'); params.push(company_name); }
     if (contact_person !== undefined) { updates.push('contact_person = ?'); params.push(contact_person); }
+    if (email !== undefined) { updates.push('email = ?'); params.push(email); }
+    if (phone !== undefined) { updates.push('phone = ?'); params.push(phone); }
+    if (address !== undefined) { updates.push('address = ?'); params.push(address); }
+    if (service_type !== undefined) { updates.push('service_type = ?'); params.push(service_type); }
 
     if (updates.length > 0) {
       params.push(vendor.id);
       await db.query(`UPDATE vendors SET ${updates.join(', ')}, updated_at = NOW() WHERE id = ?`, params);
     }
 
-    const [updated] = await db.query('SELECT * FROM vendors WHERE id = ?', [vendor.id]);
+    // Sync users table if email or contact_person name is updated
+    if (email || contact_person || phone) {
+      const userUpdates = [];
+      const userParams = [];
+      if (email) { userUpdates.push('email = ?'); userParams.push(email); }
+      if (contact_person) { userUpdates.push('name = ?'); userParams.push(contact_person); }
+      if (phone) { userUpdates.push('phone = ?'); userParams.push(phone); }
+      if (userUpdates.length > 0) {
+        userParams.push(req.user.id);
+        await db.query(`UPDATE users SET ${userUpdates.join(', ')}, updated_at = NOW() WHERE id = ?`, userParams);
+      }
+    }
+
+    const [updated] = await db.query(`
+      SELECT v.*, u.name as u_name, u.email as u_email, u.phone as u_phone 
+      FROM vendors v 
+      LEFT JOIN users u ON v.user_id = u.id 
+      WHERE v.id = ?
+    `, [vendor.id]);
+
+    const updatedVendor = updated[0] || vendor;
 
     auditService.log({
       userId: req.user.id,
       action: 'UPDATE_CONTRACT',
-      details: `Vendor (${vendor.company_name || vendor.contact_person}) updated contract profile details`,
+      details: `Vendor (${company_name || updatedVendor.company_name || updatedVendor.contact_person}) updated contract profile details`,
       ipAddress: req.ip || req.socket?.remoteAddress
     });
 
     res.json({
       success: true,
-      message: 'Contract details updated successfully.',
-      data: updated[0],
+      message: 'Profile details updated successfully.',
+      data: {
+        company_name: updatedVendor.company_name || '',
+        contact_person: updatedVendor.contact_person || updatedVendor.u_name || '',
+        email: updatedVendor.email || updatedVendor.u_email || '',
+        phone: updatedVendor.phone || updatedVendor.u_phone || '',
+        address: updatedVendor.address || '',
+        service_type: updatedVendor.service_type || '',
+        tax_id: tax_id || '',
+        description: description || updatedVendor.service_type || ''
+      },
     });
   } catch (error) {
     next(error);

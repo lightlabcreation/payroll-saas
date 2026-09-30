@@ -157,6 +157,9 @@ process.on('uncaughtException', (err) => {
       const startSubscriptionScheduler = require('./cron/subscription.cron');
       startSubscriptionScheduler();
 
+      const startWeeklyBackupReportScheduler = require('./cron/weeklyBackupReport.cron');
+      startWeeklyBackupReportScheduler();
+
       connected = true;
       break;
     } catch (err) {

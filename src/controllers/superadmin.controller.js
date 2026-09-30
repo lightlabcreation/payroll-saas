@@ -112,6 +112,17 @@ const createAdmin = async (req, res, next) => {
       await db.query(`UPDATE users SET company_id = ? WHERE id = ?`, [companyId, adminUser.id]);
     }
 
+    // Trigger Welcome Email with Login Credentials
+    emailService.sendWelcomeEmail({
+      email: adminUser.email,
+      name: adminUser.name,
+      password: password,
+      role: 'HR Admin',
+      companyName: compName || `${adminUser.name}'s Organization`,
+      planName: 'Corporate Admin Account',
+      portalUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/login`
+    }).catch(err => console.error('[EMAIL ERROR Admin Welcome]:', err.message));
+
     res.status(201).json({
       success: true,
       message: 'HR Admin account created successfully.',

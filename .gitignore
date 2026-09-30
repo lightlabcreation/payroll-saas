@@ -4,16 +4,19 @@ package-lock.json
 
 # Environment variables
 .env
-.env.*
+.env*
 *.env
 *- Copy.env
-*Copy.env
+*-Copy.env
 
-# Windows duplicate copies and backups
+# Backups, Copies & Archives
 *- Copy*
 * - Copy*
-* - Copy.*
-*- Copy.*
+*-Copy*
+*.zip
+*.rar
+*.tar.gz
+*.7z
 
 # Logs
 logs/
@@ -25,13 +28,13 @@ yarn-error.log*
 # Uploads
 uploads/*
 !uploads/.gitkeep
-uploads - Copy/
+
+# Backups output
+backups/
 
 # Database
 *.sqlite
 *.db
-backups/
-*.json.gz
 
 # IDE
 .vscode/

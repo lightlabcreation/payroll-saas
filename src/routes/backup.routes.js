@@ -31,13 +31,16 @@ const upload = multer({
   }
 });
 
-// Protect all backup routes for SuperAdmin
+// Protect all backup routes for Admin & SuperAdmin
 router.use(authenticate);
-router.use(authorize('superadmin'));
+router.use(authorize('admin', 'superadmin', 'employer'));
 
 // Endpoints
 router.get('/', backupController.getBackups);
 router.post('/create', backupController.createBackup);
+router.post('/send-email', backupController.sendBackupEmail);
+router.get('/automated-report/status', backupController.getAutomatedReportStatus);
+router.post('/automated-report/trigger', backupController.triggerAutomatedReport);
 router.get('/download/:filename', backupController.downloadBackup);
 router.delete('/:filename', backupController.deleteBackup);
 router.post('/restore', backupController.restoreBackup);

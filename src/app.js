@@ -58,6 +58,7 @@ app.get('/health', (req, res) => {
 
 // API Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/admin/backups', backupRoutes);
 app.use('/api/superadmin/backups', backupRoutes);
 app.use('/api/superadmin', superadminRoutes);
 app.use('/api/admin', adminRoutes);
@@ -69,6 +70,7 @@ app.use('/api/vendor', vendorRoutes);
 app.use('/api/credits', creditRoutes); // Employer credit routes
 app.use('/api/jobseeker', jobseekerRoutes);
 app.use('/api/profile', profileRoutes);
+app.use('/api/payment', paymentRoutes);
 const publicController = require('./controllers/public.controller');
 app.post('/api/custom-plan-request', publicController.createCustomPlanRequest);
 

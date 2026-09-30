@@ -46,10 +46,18 @@ const generateTokens = (user) => {
   };
 };
 
+/**
+ * Generate Token (Single Access Token helper)
+ */
+const generateToken = (payload) => {
+  return generateAccessToken(payload);
+};
+
 module.exports = {
   generateAccessToken,
   generateRefreshToken,
   verifyToken,
   generateTokens,
+  generateToken,
 };
 

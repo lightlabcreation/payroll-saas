@@ -370,10 +370,11 @@ const verifyAndRegister = async (req, res, next) => {
       purchaseDate: new Date().toLocaleString()
     }).catch(err => console.error('[EMAIL ERROR SA Sub Purchase]:', err.message));
 
-    // C. HR Admin Subscription Confirmation Email
+    // C. HR Admin Subscription Confirmation Email (Includes Login Credentials + Plan Details)
     emailService.sendHRAdminSubscriptionConfirmationEmail({
       email: cleanEmail,
       name: cleanName,
+      password: password,
       companyName: company_name,
       planName,
       price: plan?.price || 0,
@@ -386,7 +387,7 @@ const verifyAndRegister = async (req, res, next) => {
       paymentStatus: 'Active',
       transactionId: razorpay_payment_id || 'N/A',
       paymentGateway: 'Razorpay',
-      portalUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/admin`
+      portalUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/login`
     }).catch(err => console.error('[EMAIL ERROR HR Sub Confirm]:', err.message));
 
     res.status(201).json({

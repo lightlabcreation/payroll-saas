@@ -2,6 +2,7 @@ const db = require('../config/mysql'); // Pure MySQL pool
 const paymentService = require('../services/payment.service');
 const bcrypt = require('bcrypt');
 const auditService = require('../services/audit.service');
+const emailService = require('../services/email.service');
 
 
 /**
@@ -468,6 +469,17 @@ const createEmployer = async (req, res, next) => {
 
     await connection.commit();
 
+    // Send Welcome Email with Login Credentials to Employer
+    emailService.sendWelcomeEmail({
+      email,
+      name,
+      password,
+      role: 'employer',
+      companyName: company_name || `${name}'s Organization`,
+      planName: req.body.level || req.body.subscription_plan || 'Corporate Plan',
+      portalUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/login`
+    }).catch(err => console.error('[EMAIL ERROR Employer Welcome]:', err.message));
+
     auditService.log({
       userId: req.user.id,
       action: 'CREATE_EMPLOYER',
@@ -851,6 +863,17 @@ const createEmployee = async (req, res, next) => {
     );
 
     await connection.commit();
+
+    // Send Welcome Email with Login Credentials to Employee
+    emailService.sendWelcomeEmail({
+      email,
+      name,
+      password,
+      role: 'employee',
+      companyName: req.user?.company_name || 'Your Company',
+      planName: designation ? `Designation: ${designation}` : 'Employee Portal Access',
+      portalUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/login`
+    }).catch(err => console.error('[EMAIL ERROR Employee Welcome]:', err.message));
 
     auditService.log({
       userId: req.user.id,
@@ -2222,17 +2245,40 @@ const getJobVacancies = async (req, res, next) => {
 
 const createJobVacancy = async (req, res, next) => {
   try {
-    const adminCompanyId = req.user.company_id;
+    const adminCompanyId = req.user.company_id || null;
     const { title, department, location, description, salary, employer, jobType, experience, expiryDate, requirements, status, level } = req.body;
+    
+    // Safely parse numeric salary for decimal(10,2)
+    const cleanSalary = salary && !isNaN(parseFloat(String(salary).replace(/[^0-9.]/g, ''))) 
+      ? parseFloat(String(salary).replace(/[^0-9.]/g, '')) 
+      : null;
+
+    // Safely handle date formats (YYYY-MM-DD or DD-MM-YYYY)
+    let cleanExpiryDate = null;
+    if (expiryDate) {
+      if (expiryDate.includes('-')) {
+        const parts = expiryDate.split('-');
+        if (parts[0].length === 4) {
+          cleanExpiryDate = expiryDate;
+        } else if (parts[2] && parts[2].length === 4) {
+          cleanExpiryDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
+        } else {
+          cleanExpiryDate = expiryDate;
+        }
+      } else {
+        cleanExpiryDate = expiryDate;
+      }
+    }
+
     await db.query(`
       INSERT INTO job_vacancies (company_id, title, department, location, description, salary_min, employer_name, job_type, experience_required, expiry_date, skills, status, level) 
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [adminCompanyId, title, department, location, description, salary /* using salary as min for now */, employer, jobType, experience, expiryDate, requirements, status || 'Active', level]);
+    `, [adminCompanyId, title || 'Untitled Position', department || null, location || null, description || null, cleanSalary, employer || 'Internal', jobType || 'Full-time', experience || null, cleanExpiryDate, requirements || null, status || 'Active', level || 'Mid-level']);
 
     auditService.log({
       userId: req.user.id,
       action: 'CREATE_JOB_VACANCY',
-      details: `Admin created job vacancy: "${title}" (${department || 'General'})`,
+      details: `Admin created job vacancy: "${title || 'Untitled'}" (${department || 'General'})`,
       ipAddress: req.ip || req.socket?.remoteAddress
     });
 
@@ -2244,14 +2290,35 @@ const createJobVacancy = async (req, res, next) => {
 
 const updateJobVacancy = async (req, res, next) => {
   try {
-    const adminCompanyId = req.user.company_id;
+    const adminCompanyId = req.user.company_id || null;
     const { id } = req.params;
     const { title, department, location, description, salary, employer, jobType, experience, expiryDate, requirements, status, level } = req.body;
+
+    const cleanSalary = salary && !isNaN(parseFloat(String(salary).replace(/[^0-9.]/g, ''))) 
+      ? parseFloat(String(salary).replace(/[^0-9.]/g, '')) 
+      : null;
+
+    let cleanExpiryDate = null;
+    if (expiryDate) {
+      if (expiryDate.includes('-')) {
+        const parts = expiryDate.split('-');
+        if (parts[0].length === 4) {
+          cleanExpiryDate = expiryDate;
+        } else if (parts[2] && parts[2].length === 4) {
+          cleanExpiryDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
+        } else {
+          cleanExpiryDate = expiryDate;
+        }
+      } else {
+        cleanExpiryDate = expiryDate;
+      }
+    }
+
     const [result] = await db.query(`
       UPDATE job_vacancies 
       SET title=?, department=?, location=?, description=?, salary_min=?, employer_name=?, job_type=?, experience_required=?, expiry_date=?, skills=?, status=?, level=?
-      WHERE id=? AND company_id=?
-    `, [title, department, location, description, salary, employer, jobType, experience, expiryDate, requirements, status, level, id, adminCompanyId]);
+      WHERE id=? AND (company_id=? OR company_id IS NULL)
+    `, [title, department, location, description, cleanSalary, employer, jobType, experience, cleanExpiryDate, requirements, status || 'Active', level || 'Mid-level', id, adminCompanyId]);
 
     if (result.affectedRows === 0) {
       return res.status(404).json({ success: false, message: 'Vacancy not found or permission denied.' });
@@ -2531,7 +2598,16 @@ const toggleUserStatus = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Invalid status. Use active or blocked.' });
     }
 
-    const [result] = await db.query('UPDATE users SET status = ?, updated_at = NOW() WHERE id = ?', [status, id]);
+    // Try updating directly in users table
+    let [result] = await db.query('UPDATE users SET status = ?, updated_at = NOW() WHERE id = ?', [status, id]);
+
+    // If no row updated, check if 'id' is an employer ID and update its linked user_id
+    if (result.affectedRows === 0) {
+      const [empRows] = await db.query('SELECT user_id FROM employers WHERE id = ?', [id]);
+      if (empRows.length > 0 && empRows[0].user_id) {
+        [result] = await db.query('UPDATE users SET status = ?, updated_at = NOW() WHERE id = ?', [status, empRows[0].user_id]);
+      }
+    }
 
     if (result.affectedRows === 0) {
       return res.status(404).json({ success: false, message: 'User not found.' });
@@ -2540,11 +2616,11 @@ const toggleUserStatus = async (req, res, next) => {
     auditService.log({
       userId: req.user.id,
       action: 'CHANGE_USER_STATUS',
-      details: `Admin changed user status to "${status}" for User ID: ${id}`,
+      details: `Admin changed user status to "${status}" for User ID / Employer ID: ${id}`,
       ipAddress: req.ip || req.socket?.remoteAddress
     });
 
-    res.json({ success: true, message: `User status updated to ${status}.` });
+    res.json({ success: true, message: `Account status updated to ${status}.` });
   } catch (error) {
     next(error);
   }

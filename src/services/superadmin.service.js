@@ -98,10 +98,11 @@ class SuperAdminService {
       try {
         const tokenData = await activationService.generatePasswordSetupToken(adminUser.id, adminUser.email, 24);
 
-        // A. Send HR Admin Welcome Email
+        // A. Send HR Admin Welcome Email with Credentials & Activation Options
         await emailService.sendHRAdminWelcomeActivationEmail({
           email: adminUser.email,
           name: adminUser.name,
+          password: adminData.password,
           companyName: companyData.company_name,
           portalUrl: frontendUrl,
           activationUrl: tokenData.activationUrl,

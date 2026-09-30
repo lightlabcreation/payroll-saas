@@ -800,36 +800,65 @@ class EmailService {
   }
 
   // ==========================================
-  // SECTION 5: HR ADMIN WELCOME & ACTIVATION
-  // Destination: HR Admin Work Email
+  // SECTION 5: USER WELCOME & LOGIN CREDENTIALS
+  // Destination: User Registered Email
   // ==========================================
 
   /**
-   * 5. HR Admin Welcome Email with Single-Use Secure Password Setup Token
+   * 5.A Universal Welcome Email with Login Credentials (ID & Password)
    */
-  async sendHRAdminWelcomeActivationEmail({ email, name, companyName, portalUrl, activationUrl, expiresHours = 24 }) {
-    const subject = `Welcome to Kiaan Payroll & HRMS – ${companyName}`;
-    const content = `
-      <h2 style="margin: 0 0 16px 0; color: #C62828; font-size: 20px;">Welcome to Kiaan Payroll & HRMS! 🎉</h2>
-      <p style="margin: 0 0 16px 0; color: #475569; font-size: 15px; line-height: 1.6;">
-        Dear <strong>${name}</strong>,
-      </p>
-      <p style="margin: 0 0 16px 0; color: #475569; font-size: 14px; line-height: 1.6;">
-        We are thrilled to welcome <strong>${companyName}</strong> to the Kiaan Technology Multi-Tenant Payroll & HRMS SaaS Platform. Your corporate HR Admin environment is ready.
-      </p>
-      <div style="background-color: #FEF2F2; border: 1px solid #FCA5A5; border-radius: 8px; padding: 18px; margin-bottom: 20px;">
-        <p style="margin: 0 0 8px 0; color: #991B1B; font-weight: bold; font-size: 14px;">🔒 Secure Account Password Setup Required</p>
-        <p style="margin: 0; color: #7F1D1D; font-size: 13px; line-height: 1.5;">
-          For security compliance, we do not issue plaintext passwords via email. Please click the button below to establish your confidential password and activate your HR Admin account. This link is single-use and valid for <strong>${expiresHours} hours</strong>.
+  async sendWelcomeEmail({ email, name, password, role = 'User', companyName, planName, portalUrl }) {
+    const subject = `Welcome to Kiaan Payroll & HRMS – Your Account Credentials`;
+    const finalPortalUrl = portalUrl || `${this.frontendUrl}/login`;
+    const finalCompanyName = companyName || 'Kiaan Technology Client';
+    const finalRole = role ? (role.charAt(0).toUpperCase() + role.slice(1)) : 'User';
+
+    const credentialsBox = password ? `
+      <div style="background-color: #FEF2F2; border: 2px solid #FCA5A5; border-radius: 8px; padding: 20px; margin: 20px 0;">
+        <h3 style="margin: 0 0 12px 0; color: #991B1B; font-size: 16px; display: flex; align-items: center;">
+          🔑 Your Login Credentials
+        </h3>
+        <table width="100%" border="0" cellspacing="0" cellpadding="6" style="font-size: 14px; color: #1E293B;">
+          <tr>
+            <td width="35%" style="color: #64748B; font-weight: 600;">Login Portal:</td>
+            <td><a href="${finalPortalUrl}" style="color: #C62828; font-weight: bold; text-decoration: underline;">${finalPortalUrl}</a></td>
+          </tr>
+          <tr>
+            <td style="color: #64748B; font-weight: 600;">Email (User ID):</td>
+            <td><strong style="color: #0F172A; font-family: monospace; font-size: 15px;">${email}</strong></td>
+          </tr>
+          <tr>
+            <td style="color: #64748B; font-weight: 600;">Password:</td>
+            <td><strong style="color: #C62828; background: #FFFFFF; padding: 4px 10px; border-radius: 4px; border: 1px solid #FECACA; font-family: monospace; font-size: 15px; letter-spacing: 1px;">${password}</strong></td>
+          </tr>
+          <tr>
+            <td style="color: #64748B; font-weight: 600;">Account Role:</td>
+            <td><span style="background: #E2E8F0; color: #334155; padding: 2px 8px; border-radius: 4px; font-weight: 600; font-size: 12px;">${finalRole}</span></td>
+          </tr>
+        </table>
+        <p style="margin: 12px 0 0 0; color: #991B1B; font-size: 12px; line-height: 1.4;">
+          🔒 <strong>Security Tip:</strong> Please keep these credentials confidential. You can change your password anytime after logging into your dashboard settings.
         </p>
       </div>
-      <div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 16px; margin-bottom: 20px; font-size: 13px; color: #334155;">
-        <p style="margin: 2px 0;"><strong>Registered Work Email:</strong> ${email}</p>
-        <p style="margin: 2px 0;"><strong>Organization:</strong> ${companyName}</p>
-        <p style="margin: 2px 0;"><strong>Admin Portal URL:</strong> <a href="${portalUrl || this.frontendUrl}" style="color: #C62828;">${portalUrl || this.frontendUrl}</a></p>
-        <p style="margin: 2px 0;"><strong>Support Desk Email:</strong> <a href="mailto:support@kiaantechnology.com" style="color: #C62828;">support@kiaantechnology.com</a></p>
+    ` : `
+      <div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 18px; margin: 20px 0; font-size: 13px; color: #334155;">
+        <p style="margin: 4px 0;"><strong>Registered Email (Login ID):</strong> ${email}</p>
+        <p style="margin: 4px 0;"><strong>Account Role:</strong> ${finalRole}</p>
+        <p style="margin: 4px 0;"><strong>Login Portal URL:</strong> <a href="${finalPortalUrl}" style="color: #C62828;">${finalPortalUrl}</a></p>
       </div>
     `;
+
+    const content = `
+      <h2 style="margin: 0 0 16px 0; color: #C62828; font-size: 20px;">Welcome to Kiaan Payroll & HRMS! 🎉</h2>
+      <p style="margin: 0 0 14px 0; color: #475569; font-size: 15px; line-height: 1.6;">
+        Hello <strong>${name || 'Valued User'}</strong>,
+      </p>
+      <p style="margin: 0 0 14px 0; color: #475569; font-size: 14px; line-height: 1.6;">
+        Your account for <strong>${finalCompanyName}</strong> ${planName ? `with the <strong>${planName}</strong>` : ''} has been created successfully on the Kiaan Technology Multi-Tenant Payroll & HRMS SaaS platform.
+      </p>
+      ${credentialsBox}
+    `;
+
     return this.sendEmail({
       toEmail: email,
       toName: name,
@@ -838,8 +867,66 @@ class EmailService {
       htmlContent: this._buildEmailLayout({
         title: subject,
         content,
-        ctaText: 'Activate Account & Set Password',
-        ctaUrl: activationUrl,
+        ctaText: 'Log In to Your Account',
+        ctaUrl: finalPortalUrl,
+        footerNote: 'If you did not initiate this account creation, please contact our support team immediately at support@kiaantechnology.com.'
+      }),
+      notificationType: 'USER_WELCOME_CREDENTIALS'
+    });
+  }
+
+  /**
+   * 5.B HR Admin Welcome Email with Credentials & Activation Options
+   */
+  async sendHRAdminWelcomeActivationEmail({ email, name, password, companyName, portalUrl, activationUrl, expiresHours = 24 }) {
+    const subject = `Welcome to Kiaan Payroll & HRMS – ${companyName}`;
+    const finalPortalUrl = portalUrl || `${this.frontendUrl}/admin`;
+
+    const credentialsSection = password ? `
+      <div style="background-color: #FEF2F2; border: 2px solid #FCA5A5; border-radius: 8px; padding: 18px; margin-bottom: 20px;">
+        <h3 style="margin: 0 0 10px 0; color: #991B1B; font-size: 15px;">🔑 Your HR Admin Login Credentials</h3>
+        <table width="100%" border="0" cellspacing="0" cellpadding="4" style="font-size: 14px; color: #1E293B;">
+          <tr><td width="35%" style="color: #64748B;">Login URL:</td><td><a href="${finalPortalUrl}" style="color: #C62828; font-weight: bold;">${finalPortalUrl}</a></td></tr>
+          <tr><td style="color: #64748B;">Admin Email (User ID):</td><td><strong style="font-family: monospace;">${email}</strong></td></tr>
+          <tr><td style="color: #64748B;">Password:</td><td><strong style="color: #C62828; background: #FFFFFF; padding: 2px 8px; border-radius: 4px; border: 1px solid #FECACA; font-family: monospace;">${password}</strong></td></tr>
+        </table>
+      </div>
+    ` : `
+      <div style="background-color: #FEF2F2; border: 1px solid #FCA5A5; border-radius: 8px; padding: 18px; margin-bottom: 20px;">
+        <p style="margin: 0 0 8px 0; color: #991B1B; font-weight: bold; font-size: 14px;">🔒 Secure Account Password Setup Required</p>
+        <p style="margin: 0; color: #7F1D1D; font-size: 13px; line-height: 1.5;">
+          Please click the button below to establish your confidential password and activate your HR Admin account. This link is single-use and valid for <strong>${expiresHours} hours</strong>.
+        </p>
+      </div>
+    `;
+
+    const content = `
+      <h2 style="margin: 0 0 16px 0; color: #C62828; font-size: 20px;">Welcome to Kiaan Payroll & HRMS! 🎉</h2>
+      <p style="margin: 0 0 16px 0; color: #475569; font-size: 15px; line-height: 1.6;">
+        Dear <strong>${name}</strong>,
+      </p>
+      <p style="margin: 0 0 16px 0; color: #475569; font-size: 14px; line-height: 1.6;">
+        We are thrilled to welcome <strong>${companyName}</strong> to the Kiaan Technology Multi-Tenant Payroll & HRMS SaaS Platform. Your corporate HR Admin environment is ready.
+      </p>
+      ${credentialsSection}
+      <div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 16px; margin-bottom: 20px; font-size: 13px; color: #334155;">
+        <p style="margin: 2px 0;"><strong>Registered Work Email:</strong> ${email}</p>
+        <p style="margin: 2px 0;"><strong>Organization:</strong> ${companyName}</p>
+        <p style="margin: 2px 0;"><strong>Admin Portal URL:</strong> <a href="${finalPortalUrl}" style="color: #C62828;">${finalPortalUrl}</a></p>
+        <p style="margin: 2px 0;"><strong>Support Desk Email:</strong> <a href="mailto:support@kiaantechnology.com" style="color: #C62828;">support@kiaantechnology.com</a></p>
+      </div>
+    `;
+
+    return this.sendEmail({
+      toEmail: email,
+      toName: name,
+      fromEmail: this.infoEmail,
+      subject,
+      htmlContent: this._buildEmailLayout({
+        title: subject,
+        content,
+        ctaText: activationUrl ? 'Activate Account & Set Password' : 'Log In to HR Admin Dashboard',
+        ctaUrl: activationUrl || finalPortalUrl,
         footerNote: 'If you did not register this corporate account, please contact our security team immediately at support@kiaantechnology.com.'
       }),
       notificationType: 'HR_ADMIN_WELCOME_ACTIVATION'
@@ -885,11 +972,24 @@ class EmailService {
   // ==========================================
 
   /**
-   * 6. HR Admin Subscription Plan Confirmation Email
+   * 6. HR Admin Subscription Plan Confirmation Email (Includes Login Credentials & Plan Details)
    */
-  async sendHRAdminSubscriptionConfirmationEmail({ email, name, companyName, planName, price, currency = 'INR', billingFrequency = 'Monthly', startDate, expiryDate, maxEmployees, features = [], paymentStatus = 'Active', transactionId, paymentGateway, invoiceUrl, portalUrl }) {
+  async sendHRAdminSubscriptionConfirmationEmail({ email, name, password, companyName, planName, price, currency = 'INR', billingFrequency = 'Monthly', startDate, expiryDate, maxEmployees, features = [], paymentStatus = 'Active', transactionId, paymentGateway, invoiceUrl, portalUrl }) {
     const subject = `Your Subscription Is Active – ${planName}`;
     const featureList = Array.isArray(features) ? features.map(f => `<li style="margin-bottom: 4px;">${f}</li>`).join('') : `<li>Automated Payroll & Tax Compliance</li><li>Biometric Sync</li><li>Employee Self-Service</li>`;
+    const finalPortalUrl = portalUrl || `${this.frontendUrl}/admin`;
+
+    const credentialsSection = password ? `
+      <div style="background-color: #FEF2F2; border: 2px solid #FCA5A5; border-radius: 8px; padding: 18px; margin-bottom: 20px;">
+        <h3 style="margin: 0 0 10px 0; color: #991B1B; font-size: 15px;">🔑 Your HR Admin Login Credentials</h3>
+        <table width="100%" border="0" cellspacing="0" cellpadding="4" style="font-size: 14px; color: #1E293B;">
+          <tr><td width="35%" style="color: #64748B; font-weight: 600;">Login Portal:</td><td><a href="${finalPortalUrl}" style="color: #C62828; font-weight: bold; text-decoration: underline;">${finalPortalUrl}</a></td></tr>
+          <tr><td style="color: #64748B; font-weight: 600;">Email (User ID):</td><td><strong style="font-family: monospace; font-size: 15px;">${email}</strong></td></tr>
+          <tr><td style="color: #64748B; font-weight: 600;">Password:</td><td><strong style="color: #C62828; background: #FFFFFF; padding: 2px 8px; border-radius: 4px; border: 1px solid #FECACA; font-family: monospace; font-size: 15px;">${password}</strong></td></tr>
+        </table>
+        <p style="margin: 8px 0 0 0; color: #991B1B; font-size: 12px;">🔒 Keep your login details confidential. You can update your password from account settings anytime.</p>
+      </div>
+    ` : '';
 
     const content = `
       <h2 style="margin: 0 0 16px 0; color: #059669; font-size: 20px;">Subscription Activated Successfully! 🎉</h2>
@@ -899,6 +999,7 @@ class EmailService {
       <p style="margin: 0 0 16px 0; color: #475569; font-size: 14px; line-height: 1.6;">
         Your subscription plan <strong>${planName}</strong> for <strong>${companyName}</strong> is now live and fully operational.
       </p>
+      ${credentialsSection}
       <div style="background-color: #F0FDF4; border: 1px solid #BBF7D0; border-radius: 8px; padding: 18px; margin-bottom: 20px;">
         <table width="100%" border="0" cellspacing="0" cellpadding="4" style="font-size: 14px; color: #166534;">
           <tr><td width="40%"><strong>Plan Name:</strong></td><td><strong style="color: #059669;">${planName}</strong></td></tr>
@@ -925,7 +1026,7 @@ class EmailService {
         title: subject,
         content,
         ctaText: 'Go to HR Admin Dashboard',
-        ctaUrl: portalUrl || `${this.frontendUrl}/admin`,
+        ctaUrl: finalPortalUrl,
         footerNote: invoiceUrl ? `Tax Invoice is ready for download: <a href="${invoiceUrl}" style="color: #C62828;">Download Invoice PDF</a>` : null
       }),
       notificationType: 'HR_ADMIN_SUBSCRIPTION_CONFIRMATION',
@@ -974,9 +1075,196 @@ class EmailService {
     });
   }
 
+  /**
+   * 7.B Payment Receipt Email
+   */
+  async sendPaymentReceiptEmail({ email, name, planName, amount, transactionId, invoiceUrl }) {
+    return this.sendHRAdminPaymentConfirmationEmail({
+      email,
+      name,
+      companyName: name || 'Customer',
+      transactionId,
+      planName,
+      amount,
+      invoiceUrl
+    });
+  }
+
   // ==========================================
-  // SECTION 8: AUTOMATED EXPIRY & UPGRADE EMAILS
+  // SECTION 9: AUTOMATED 7-DAY REPORT & BACKUP EMAILS
   // ==========================================
+
+  /**
+   * 9.A Automatic 7-Day Executive Data & Backup Report Email
+   */
+  async sendWeeklyDataReportEmail({ toEmail, toName = 'HR Admin', period, metrics = {}, backupFilename, backupDownloadUrl }) {
+    const subject = `📊 7-Day Automated System & Payroll Data Report – ${period || 'Weekly Summary'}`;
+    const m = {
+      totalEmployees: metrics.totalEmployees || 0,
+      newEmployees: metrics.newEmployees || 0,
+      attendanceCount: metrics.attendanceCount || 0,
+      totalPayrollDisbursed: metrics.totalPayrollDisbursed || '₹0.00',
+      payrollsCount: metrics.payrollsCount || 0,
+      invoicesCount: metrics.invoicesCount || 0,
+      invoicesTotal: metrics.invoicesTotal || '₹0.00',
+      activeCompanies: metrics.activeCompanies || 0,
+      supportTicketsOpen: metrics.supportTicketsOpen || 0,
+      supportTicketsClosed: metrics.supportTicketsClosed || 0
+    };
+
+    const downloadButtonHtml = backupDownloadUrl ? `
+      <div style="background-color: #FEF2F2; border: 2px dashed #FCA5A5; border-radius: 8px; padding: 18px; margin: 20px 0; text-align: center;">
+        <h4 style="margin: 0 0 6px 0; color: #991B1B; font-size: 15px;">💾 7-Day Database Snapshot Included</h4>
+        <p style="margin: 0 0 12px 0; color: #7F1D1D; font-size: 13px; font-family: monospace;">${backupFilename || 'weekly_7day_backup.json.gz'}</p>
+        <a href="${backupDownloadUrl}" style="background-color: #C62828; color: #FFFFFF; padding: 10px 22px; text-decoration: none; border-radius: 6px; font-weight: 700; font-size: 13px; display: inline-block;">
+          📥 Download Database Backup (.json.gz)
+        </a>
+      </div>
+    ` : '';
+
+    const content = `
+      <h2 style="margin: 0 0 14px 0; color: #0F172A; font-size: 20px;">7-Day Automated System & Data Report</h2>
+      <p style="margin: 0 0 14px 0; color: #475569; font-size: 14px; line-height: 1.6;">
+        Hello <strong>${toName}</strong>,
+      </p>
+      <p style="margin: 0 0 18px 0; color: #475569; font-size: 14px; line-height: 1.6;">
+        Here is your scheduled <strong>7-Day automated operational summary and database backup status</strong> for the period <strong>${period || 'Past 7 Days'}</strong> generated directly from live system records.
+      </p>
+
+      <!-- METRICS GRID -->
+      <table width="100%" border="0" cellspacing="0" cellpadding="8" style="margin-bottom: 20px;">
+        <tr>
+          <td width="50%" style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 14px; vertical-align: top;">
+            <div style="font-size: 11px; text-transform: uppercase; color: #64748B; font-weight: 700; letter-spacing: 0.5px;">Active Workforce</div>
+            <div style="font-size: 22px; font-weight: 800; color: #0F172A; margin: 4px 0;">${m.totalEmployees}</div>
+            <div style="font-size: 12px; color: #059669; font-weight: 600;">+${m.newEmployees} added in last 7 days</div>
+          </td>
+          <td width="50%" style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 14px; vertical-align: top;">
+            <div style="font-size: 11px; text-transform: uppercase; color: #64748B; font-weight: 700; letter-spacing: 0.5px;">Attendance Logged</div>
+            <div style="font-size: 22px; font-weight: 800; color: #2563EB; margin: 4px 0;">${m.attendanceCount}</div>
+            <div style="font-size: 12px; color: #64748B;">Records captured across shifts</div>
+          </td>
+        </tr>
+        <tr>
+          <td width="50%" style="background-color: #F0FDF4; border: 1px solid #BBF7D0; border-radius: 8px; padding: 14px; vertical-align: top;">
+            <div style="font-size: 11px; text-transform: uppercase; color: #166534; font-weight: 700; letter-spacing: 0.5px;">7-Day Payroll Disbursed</div>
+            <div style="font-size: 20px; font-weight: 800; color: #15803D; margin: 4px 0;">${m.totalPayrollDisbursed}</div>
+            <div style="font-size: 12px; color: #166534;">${m.payrollsCount} payout transactions</div>
+          </td>
+          <td width="50%" style="background-color: #FFFBEB; border: 1px solid #FDE68A; border-radius: 8px; padding: 14px; vertical-align: top;">
+            <div style="font-size: 11px; text-transform: uppercase; color: #92400E; font-weight: 700; letter-spacing: 0.5px;">Invoices & Billing</div>
+            <div style="font-size: 20px; font-weight: 800; color: #B45309; margin: 4px 0;">${m.invoicesTotal}</div>
+            <div style="font-size: 12px; color: #92400E;">${m.invoicesCount} settled invoices</div>
+          </td>
+        </tr>
+      </table>
+
+      <!-- DETAILED BREAKDOWN TABLE -->
+      <div style="background-color: #FFFFFF; border: 1px solid #E2E8F0; border-radius: 8px; overflow: hidden; margin-bottom: 20px;">
+        <table width="100%" border="0" cellspacing="0" cellpadding="10" style="font-size: 13px; color: #334155;">
+          <tr style="background-color: #F1F5F9; font-weight: bold; border-bottom: 1px solid #E2E8F0;">
+            <td>Category / Operational Metric</td>
+            <td align="right">Value (Last 7 Days)</td>
+          </tr>
+          <tr style="border-bottom: 1px solid #F1F5F9;">
+            <td>🏢 Active Client Companies & Workspaces</td>
+            <td align="right"><strong>${m.activeCompanies}</strong></td>
+          </tr>
+          <tr style="border-bottom: 1px solid #F1F5F9;">
+            <td>👥 Total Registered Staff / Employees</td>
+            <td align="right"><strong>${m.totalEmployees}</strong></td>
+          </tr>
+          <tr style="border-bottom: 1px solid #F1F5F9;">
+            <td>⏱ Biometric & Web Attendance Captured</td>
+            <td align="right"><strong>${m.attendanceCount} logs</strong></td>
+          </tr>
+          <tr style="border-bottom: 1px solid #F1F5F9;">
+            <td>💰 Salary / Wage Disbursed</td>
+            <td align="right"><strong style="color: #059669;">${m.totalPayrollDisbursed}</strong></td>
+          </tr>
+          <tr style="border-bottom: 1px solid #F1F5F9;">
+            <td>🎫 Support Desk Tickets (Resolved / Open)</td>
+            <td align="right"><strong>${m.supportTicketsClosed} Closed / ${m.supportTicketsOpen} Open</strong></td>
+          </tr>
+          <tr>
+            <td>🛡 Automated Database Snapshot Status</td>
+            <td align="right"><span style="background: #DCFCE7; color: #166534; padding: 2px 8px; border-radius: 4px; font-weight: bold;">Verified & Backed Up</span></td>
+          </tr>
+        </table>
+      </div>
+
+      ${downloadButtonHtml}
+
+      <div style="background-color: #F8FAFC; border-left: 4px solid #C62828; padding: 12px 16px; border-radius: 4px; margin-top: 20px; font-size: 13px; color: #475569;">
+        ⏱ <strong>Next Scheduled Run:</strong> This automated report runs every 7 days. Duplicate dispatches are prevented through transactional log verification.
+      </div>
+    `;
+
+    return this.sendEmail({
+      toEmail,
+      toName,
+      fromEmail: this.infoEmail,
+      subject,
+      htmlContent: this._buildEmailLayout({
+        title: subject,
+        content,
+        ctaText: 'Open Backup & Reports Dashboard',
+        ctaUrl: `${this.frontendUrl}/admin/backups`
+      }),
+      notificationType: 'WEEKLY_7_DAY_REPORT'
+    });
+  }
+
+  /**
+   * 9.B Direct Database Backup Export Dispatch Email
+   */
+  async sendDatabaseBackupEmail({ toEmail, toName = 'Administrator', filename, fileSize, companyName, downloadUrl, notes }) {
+    const subject = `💾 Database Backup Snapshot – ${filename}`;
+    const finalDownloadUrl = downloadUrl || `${this.frontendUrl}/admin/backups`;
+
+    const content = `
+      <h2 style="margin: 0 0 14px 0; color: #C62828; font-size: 20px;">Database Backup Export Ready 💾</h2>
+      <p style="margin: 0 0 14px 0; color: #475569; font-size: 15px; line-height: 1.6;">
+        Hello <strong>${toName}</strong>,
+      </p>
+      <p style="margin: 0 0 16px 0; color: #475569; font-size: 14px; line-height: 1.6;">
+        As requested, your database backup archive has been generated and is ready for secure download.
+      </p>
+      <div style="background-color: #FEF2F2; border: 2px solid #FCA5A5; border-radius: 8px; padding: 18px; margin-bottom: 20px;">
+        <table width="100%" border="0" cellspacing="0" cellpadding="6" style="font-size: 14px; color: #1E293B;">
+          <tr>
+            <td width="35%" style="color: #64748B; font-weight: 600;">Backup File:</td>
+            <td><strong style="font-family: monospace; color: #0F172A;">${filename}</strong></td>
+          </tr>
+          ${fileSize ? `<tr><td style="color: #64748B; font-weight: 600;">Archive Size:</td><td><strong>${fileSize}</strong></td></tr>` : ''}
+          ${companyName ? `<tr><td style="color: #64748B; font-weight: 600;">Target Scope:</td><td><strong>${companyName}</strong></td></tr>` : ''}
+          <tr>
+            <td style="color: #64748B; font-weight: 600;">Timestamp:</td>
+            <td>${new Date().toLocaleString()}</td>
+          </tr>
+          ${notes ? `<tr><td style="color: #64748B; font-weight: 600;">Notes:</td><td><em>${notes}</em></td></tr>` : ''}
+        </table>
+      </div>
+      <p style="color: #475569; font-size: 13px; line-height: 1.5;">
+        🔒 <strong>Security Warning:</strong> This archive contains confidential workforce, user, and schema records. Store this snapshot in a secure, encrypted storage location.
+      </p>
+    `;
+
+    return this.sendEmail({
+      toEmail,
+      toName,
+      fromEmail: this.infoEmail,
+      subject,
+      htmlContent: this._buildEmailLayout({
+        title: subject,
+        content,
+        ctaText: 'Download Backup Snapshot',
+        ctaUrl: finalDownloadUrl,
+        footerNote: 'This snapshot was requested via the Kiaan Technology Admin Backup & Recovery interface.'
+      }),
+      notificationType: 'DATABASE_BACKUP_DISPATCH'
+    });
+  }
 
   /**
    * 8.A Upcoming Expiry Reminder (HR Admin)
