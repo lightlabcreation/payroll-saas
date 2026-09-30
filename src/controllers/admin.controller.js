@@ -1,6 +1,7 @@
 const db = require('../config/mysql'); // Pure MySQL pool
 const paymentService = require('../services/payment.service');
 const bcrypt = require('bcrypt');
+const auditService = require('../services/audit.service');
 
 
 /**
@@ -467,6 +468,13 @@ const createEmployer = async (req, res, next) => {
 
     await connection.commit();
 
+    auditService.log({
+      userId: req.user.id,
+      action: 'CREATE_EMPLOYER',
+      details: `Admin created employer: "${company_name || name}" (${email})`,
+      ipAddress: req.ip || req.socket?.remoteAddress
+    });
+
     // Prepare response data
     res.status(201).json({
       success: true,
@@ -621,6 +629,14 @@ const updateEmployer = async (req, res, next) => {
     }
 
     await connection.commit();
+
+    auditService.log({
+      userId: req.user.id,
+      action: 'UPDATE_EMPLOYER',
+      details: `Admin updated employer record ID: ${id} (${company_name || 'Employer'})`,
+      ipAddress: req.ip || req.socket?.remoteAddress
+    });
+
     res.json({ success: true, message: 'Employer updated successfully.' });
   } catch (error) {
     if (connection) await connection.rollback();
@@ -652,6 +668,13 @@ const deleteEmployer = async (req, res, next) => {
 
     await connection.commit();
     await connection.query('SET FOREIGN_KEY_CHECKS = 1');
+
+    auditService.log({
+      userId: req.user.id,
+      action: 'DELETE_EMPLOYER',
+      details: `Admin deleted employer ID: ${id}`,
+      ipAddress: req.ip || req.socket?.remoteAddress
+    });
 
     res.json({ success: true, message: 'Employer deleted successfully.' });
   } catch (error) {
@@ -716,6 +739,13 @@ const addCredit = async (req, res, next) => {
       [employer.id, req.user.id, amt, req.body.reference || 'Admin Credit Add', req.body.payment_method || 'Bank', req.body.transaction_id || '']
     );
 
+    auditService.log({
+      userId: req.user.id,
+      action: 'ADD_CREDIT',
+      details: `Admin added ${amt} credits to employer ID: ${employer.id}`,
+      ipAddress: req.ip || req.socket?.remoteAddress
+    });
+
     res.json({ success: true, message: 'Credit added successfully.', data: credit });
   } catch (error) {
     next(error);
@@ -764,6 +794,14 @@ const addCreditBulk = async (req, res, next) => {
     }
 
     await connection.commit();
+
+    auditService.log({
+      userId: req.user.id,
+      action: 'ADD_CREDIT_BULK',
+      details: `Admin added ${amt} credits each to ${employer_ids.length} employers`,
+      ipAddress: req.ip || req.socket?.remoteAddress
+    });
+
     res.json({ success: true, message: `Credits added to ${employer_ids.length} employers.` });
   } catch (error) {
     if (connection) await connection.rollback();
@@ -813,6 +851,13 @@ const createEmployee = async (req, res, next) => {
     );
 
     await connection.commit();
+
+    auditService.log({
+      userId: req.user.id,
+      action: 'CREATE_EMPLOYEE',
+      details: `Admin created employee: ${name} (${email}) - Role: ${designation || 'Staff'}`,
+      ipAddress: req.ip || req.socket?.remoteAddress
+    });
 
     res.status(201).json({
       success: true,
@@ -906,6 +951,13 @@ const updateEmployee = async (req, res, next) => {
     // Fetch updated
     const [updated] = await db.query('SELECT * FROM employees WHERE id = ?', [id]);
 
+    auditService.log({
+      userId: req.user.id,
+      action: 'UPDATE_EMPLOYEE',
+      details: `Admin updated employee record ID: ${id}`,
+      ipAddress: req.ip || req.socket?.remoteAddress
+    });
+
     res.json({
       success: true,
       message: 'Employee updated successfully.',
@@ -933,6 +985,13 @@ const deleteEmployee = async (req, res, next) => {
     await connection.query('DELETE FROM users WHERE id = ?', [userId]);
 
     await connection.commit();
+
+    auditService.log({
+      userId: req.user.id,
+      action: 'DELETE_EMPLOYEE',
+      details: `Admin deleted employee ID: ${id}`,
+      ipAddress: req.ip || req.socket?.remoteAddress
+    });
 
     res.json({
       success: true,
@@ -983,6 +1042,13 @@ const createVendor = async (req, res, next) => {
     );
 
     await connection.commit();
+
+    auditService.log({
+      userId: req.user.id,
+      action: 'CREATE_VENDOR',
+      details: `Admin created vendor: "${company_name || name}" (${email})`,
+      ipAddress: req.ip || req.socket?.remoteAddress
+    });
 
     res.status(201).json({
       success: true,
@@ -1064,6 +1130,13 @@ const updateVendor = async (req, res, next) => {
 
     const [updated] = await db.query('SELECT * FROM vendors WHERE id = ?', [id]);
 
+    auditService.log({
+      userId: req.user.id,
+      action: 'UPDATE_VENDOR',
+      details: `Admin updated vendor ID: ${id}`,
+      ipAddress: req.ip || req.socket?.remoteAddress
+    });
+
     res.json({
       success: true,
       message: 'Vendor updated successfully.',
@@ -1091,6 +1164,13 @@ const deleteVendor = async (req, res, next) => {
     await connection.query('DELETE FROM users WHERE id = ?', [userId]);
 
     await connection.commit();
+
+    auditService.log({
+      userId: req.user.id,
+      action: 'DELETE_VENDOR',
+      details: `Admin deleted vendor ID: ${id}`,
+      ipAddress: req.ip || req.socket?.remoteAddress
+    });
 
     res.json({
       success: true,
@@ -1630,6 +1710,13 @@ const createTraining = async (req, res, next) => {
       [targetEmployerId, title, description, instructor || null, duration || null, category || null, start_date || null, end_date || null, status]
     );
 
+    auditService.log({
+      userId: req.user.id,
+      action: 'CREATE_TRAINING',
+      details: `Admin created training course "${title}" (Category: ${category || 'General'})`,
+      ipAddress: req.ip || req.socket?.remoteAddress
+    });
+
     res.json({ success: true, message: 'Training created successfully.' });
   } catch (error) {
     next(error);
@@ -1652,6 +1739,13 @@ const assignTraining = async (req, res, next) => {
     // Note: If using multiple values insert, ensure column order matches table
     // Columns: training_id, employee_id, status
     await db.query('INSERT INTO course_assignments (training_id, employee_id, status) VALUES ?', [values]);
+
+    auditService.log({
+      userId: req.user.id,
+      action: 'ASSIGN_TRAINING',
+      details: `Admin assigned training (ID: ${trainingId}) to ${employeeIds.length} employees`,
+      ipAddress: req.ip || req.socket?.remoteAddress
+    });
 
     res.json({ success: true, message: 'Training assigned successfully.' });
   } catch (error) {
@@ -1850,6 +1944,13 @@ const createBillCompany = async (req, res, next) => {
     await db.query('INSERT INTO billing_companies (company_id, name, category, billing_code, level, status) VALUES (?, ?, ?, ?, ?, ?)',
       [adminCompanyId, name, category, billingCode, level, status || 'Active']);
 
+    auditService.log({
+      userId: req.user.id,
+      action: 'CREATE_BILL_COMPANY',
+      details: `Admin created billing company: "${name}" (${billingCode})`,
+      ipAddress: req.ip || req.socket?.remoteAddress
+    });
+
     res.status(201).json({ success: true, message: 'Company added successfully' });
   } catch (error) {
     next(error);
@@ -1869,6 +1970,13 @@ const updateBillCompany = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Billing company not found or permission denied.' });
     }
 
+    auditService.log({
+      userId: req.user.id,
+      action: 'UPDATE_BILL_COMPANY',
+      details: `Admin updated billing company ID: ${id} (${name})`,
+      ipAddress: req.ip || req.socket?.remoteAddress
+    });
+
     res.json({ success: true, message: 'Company updated successfully' });
   } catch (error) {
     next(error);
@@ -1884,6 +1992,13 @@ const deleteBillCompany = async (req, res, next) => {
     if (result.affectedRows === 0) {
       return res.status(404).json({ success: false, message: 'Billing company not found or permission denied.' });
     }
+
+    auditService.log({
+      userId: req.user.id,
+      action: 'DELETE_BILL_COMPANY',
+      details: `Admin deleted billing company ID: ${id}`,
+      ipAddress: req.ip || req.socket?.remoteAddress
+    });
 
     res.json({ success: true, message: 'Company deleted successfully' });
   } catch (error) {
@@ -2113,6 +2228,14 @@ const createJobVacancy = async (req, res, next) => {
       INSERT INTO job_vacancies (company_id, title, department, location, description, salary_min, employer_name, job_type, experience_required, expiry_date, skills, status, level) 
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [adminCompanyId, title, department, location, description, salary /* using salary as min for now */, employer, jobType, experience, expiryDate, requirements, status || 'Active', level]);
+
+    auditService.log({
+      userId: req.user.id,
+      action: 'CREATE_JOB_VACANCY',
+      details: `Admin created job vacancy: "${title}" (${department || 'General'})`,
+      ipAddress: req.ip || req.socket?.remoteAddress
+    });
+
     res.status(201).json({ success: true, message: 'Vacancy created successfully' });
   } catch (error) {
     next(error);
@@ -2204,6 +2327,13 @@ const createJobSeeker = async (req, res, next) => {
       INSERT INTO job_seeker_profiles (user_id, skills, experience, education, current_company, level)
       VALUES (?, ?, ?, ?, ?, ?)
     `, [userId, skills || '', experience || '', education || '', currentCompany || '', level || 'Entry']);
+
+    auditService.log({
+      userId: req.user.id,
+      action: 'CREATE_JOB_SEEKER',
+      details: `Admin registered job seeker: ${name} (${email})`,
+      ipAddress: req.ip || req.socket?.remoteAddress
+    });
 
     res.status(201).json({ success: true, message: 'Job seeker added successfully' });
   } catch (error) {
@@ -2348,6 +2478,14 @@ const approveCreditRequest = async (req, res, next) => {
     }
 
     await connection.commit();
+
+    auditService.log({
+      userId: req.user.id,
+      action: 'APPROVE_CREDIT',
+      details: `Admin approved credit request of ${amount} credits for employer ID: ${txn.employer_id}`,
+      ipAddress: req.ip || req.socket?.remoteAddress
+    });
+
     res.json({ success: true, message: 'Credit request approved successfully.' });
   } catch (error) {
     if (connection) await connection.rollback();
@@ -2371,6 +2509,13 @@ const rejectCreditRequest = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Pending transaction not found.' });
     }
 
+    auditService.log({
+      userId: req.user.id,
+      action: 'REJECT_CREDIT',
+      details: `Admin rejected credit request ID: ${id}`,
+      ipAddress: req.ip || req.socket?.remoteAddress
+    });
+
     res.json({ success: true, message: 'Credit request rejected.' });
   } catch (error) {
     next(error);
@@ -2392,7 +2537,77 @@ const toggleUserStatus = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'User not found.' });
     }
 
+    auditService.log({
+      userId: req.user.id,
+      action: 'CHANGE_USER_STATUS',
+      details: `Admin changed user status to "${status}" for User ID: ${id}`,
+      ipAddress: req.ip || req.socket?.remoteAddress
+    });
+
     res.json({ success: true, message: `User status updated to ${status}.` });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * ============================================================================
+ * ADMIN AUDIT LOGS
+ * ============================================================================
+ */
+
+/**
+ * Get Paginated Audit Logs for Admin
+ */
+const getAuditLogs = async (req, res, next) => {
+  try {
+    const { page, limit, search, action, startDate, endDate, userId, role } = req.query;
+    const result = await auditService.getAuditLogs({
+      page,
+      limit,
+      search,
+      action,
+      startDate,
+      endDate,
+      userId,
+      role
+    });
+
+    res.json({
+      success: true,
+      data: result.logs,
+      pagination: result.pagination
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get Audit Logs Aggregated Statistics for Admin
+ */
+const getAuditStats = async (req, res, next) => {
+  try {
+    const stats = await auditService.getStats();
+    res.json({
+      success: true,
+      data: stats
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get Distinct Audit Action Types for Dropdown Filter
+ */
+const getAuditActions = async (req, res, next) => {
+  try {
+    const actions = await auditService.getUniqueActions();
+    res.json({
+      success: true,
+      data: actions
+    });
   } catch (error) {
     next(error);
   }
@@ -2402,7 +2617,6 @@ module.exports = {
   getDashboard,
   getDashboardSummary,
   getEmployers,
-  // getEmployees, // Removed
   getTransactions,
   deleteTransaction,
   createEmployer,
@@ -2434,10 +2648,10 @@ module.exports = {
   getMyPayments,
   getSubscriptionStatus,
   // Job Portal
-  getAllJobs, // Legacy
-  createJob, // Legacy
-  updateJob, // Legacy
-  deleteJob, // Legacy
+  getAllJobs,
+  createJob,
+  updateJob,
+  deleteJob,
   getJobVacancies, createJobVacancy, updateJobVacancy, deleteJobVacancy,
   getJobSeekers, getJobSeekerById, createJobSeeker, updateJobSeeker, deleteJobSeeker,
   // Attendance & Training
@@ -2446,23 +2660,24 @@ module.exports = {
   assignTraining,
   createTraining,
   markAttendance,
-  // New Training Functions
+  // Training Materials & Completion
   uploadTrainingMaterial,
   getTrainingMaterials,
   markTrainingCompletion,
   getTrainingResults,
-  getTrainingResults,
   deleteTraining,
   getTrainingById,
   updateTraining,
-  // Bill Companies - Already exported above as getBillCompanies, etc.
-  // We should remove duplicates from the end of the exports list
-  // Retaining only unique exports
   getPaymentGateways, createPaymentGateway, updatePaymentGateway, deletePaymentGateway,
   getBankAccounts, createBankAccount, updateBankAccount, deleteBankAccount,
   approveCreditRequest,
   rejectCreditRequest,
   getPendingCreditRequests,
   toggleUserStatus,
+  // Audit Logs
+  getAuditLogs,
+  getAuditStats,
+  getAuditActions
 };
+
 

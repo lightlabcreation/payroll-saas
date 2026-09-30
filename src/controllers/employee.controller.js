@@ -1,6 +1,7 @@
 
 const db = require('../config/mysql');
 const bcrypt = require('bcrypt');
+const auditService = require('../services/audit.service');
 
 /**
  * 1. Dashboard Summary (Optimized)
@@ -238,6 +239,13 @@ const createBill = async (req, res, next) => {
       VALUES (?, ?, ?, ?, ?, 'pending', NOW(), NOW())
     `, [emp[0].id, emp[0].employer_id, title, amount, description]);
 
+    auditService.log({
+      userId: req.user.id,
+      action: 'SUBMIT_BILL',
+      details: `Employee submitted reimbursement claim "${title}" of ₹${parseFloat(amount || 0).toLocaleString()}`,
+      ipAddress: req.ip || req.socket?.remoteAddress
+    });
+
     res.json({ success: true, message: 'Bill created successfully' });
   } catch (err) { next(err); }
 };
@@ -283,6 +291,14 @@ const payBill = async (req, res, next) => {
     `, [req.user.id, emp.employer_id, bill.amount, `Paid bill: ${bill.name || bill.bill_number}`]);
 
     await connection.commit();
+
+    auditService.log({
+      userId: req.user.id,
+      action: 'PAY_BILL',
+      details: `Employee settled bill claim #${billId} of ₹${parseFloat(bill.amount).toLocaleString()}`,
+      ipAddress: req.ip || req.socket?.remoteAddress
+    });
+
     res.json({ success: true, message: 'Bill paid successfully' });
   } catch (err) {
     if (connection) await connection.rollback();
@@ -334,6 +350,13 @@ const checkIn = async (req, res, next) => {
       INSERT INTO attendance (employee_id, employer_id, user_id, date, check_in, status, location, notes, created_at, updated_at)
       VALUES (?, ?, ?, ?, NOW(), ?, ?, ?, NOW(), NOW())
     `, [emp[0].id, emp[0].employer_id, req.user.id, today, isLate ? 'late' : 'present', location || 'Office', notes || null]);
+
+    auditService.log({
+      userId: req.user.id,
+      action: 'EMPLOYEE_CHECKIN',
+      details: `Employee checked in (${isLate ? 'Late' : 'On Time'}) from ${location || 'Office'}`,
+      ipAddress: req.ip || req.socket?.remoteAddress
+    });
 
     res.json({ success: true, message: 'Checked in successfully' });
   } catch (err) {
@@ -388,6 +411,13 @@ const checkOut = async (req, res, next) => {
         updated_at = NOW() 
       WHERE id = ?
     `, [hours, hours, location || null, notes || null, existing[0].id]);
+
+    auditService.log({
+      userId: req.user.id,
+      action: 'EMPLOYEE_CHECKOUT',
+      details: `Employee checked out. Total logged: ${hours} hours`,
+      ipAddress: req.ip || req.socket?.remoteAddress
+    });
 
     res.json({
       success: true,
@@ -516,6 +546,13 @@ const addBankDetails = async (req, res, next) => {
       final_account_holder, final_branch, final_account_type, final_is_primary
     ]);
 
+    auditService.log({
+      userId: req.user.id,
+      action: 'UPDATE_BANK_DETAILS',
+      details: `Employee submitted bank details for ${final_bank_name} (A/C: ${final_account_number ? final_account_number.slice(-4).padStart(final_account_number.length, '*') : '****'})`,
+      ipAddress: req.ip || req.socket?.remoteAddress
+    });
+
     res.json({ success: true, message: 'Bank details added. Awaiting verification.' });
   } catch (err) { next(err); }
 };
@@ -624,6 +661,14 @@ const applyForJob = async (req, res, next) => {
     await connection.query('UPDATE jobs SET applicants_count = applicants_count + 1 WHERE id = ?', [jobId]);
 
     await connection.commit();
+
+    auditService.log({
+      userId: req.user.id,
+      action: 'APPLY_JOB',
+      details: `Employee submitted job application for Job ID: ${jobId}`,
+      ipAddress: req.ip || req.socket?.remoteAddress
+    });
+
     res.json({ success: true, message: 'Application submitted successfully' });
   } catch (err) {
     await connection.rollback();

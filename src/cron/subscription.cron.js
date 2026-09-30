@@ -109,7 +109,7 @@ const startSubscriptionScheduler = () => {
 
           // Update tenant/employer status
           await connection.query(
-            "UPDATE employers SET status = 'inactive', subscription_status = 'expired', updated_at = NOW() WHERE id = ?",
+            "UPDATE employers SET status = 'inactive', updated_at = NOW() WHERE id = ?",
             [sub.employer_id]
           );
 

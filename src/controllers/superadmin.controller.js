@@ -7,6 +7,7 @@ const authService = require('../services/auth.service');
 const superAdminService = require('../services/superadmin.service');
 const emailService = require('../services/email.service');
 const activationService = require('../services/activation.service');
+const auditService = require('../services/audit.service');
 
 /**
  * Get Super Admin Dashboard Data
@@ -435,17 +436,49 @@ const deleteAdmin = async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const [adminRows] = await db.query('SELECT * FROM admins WHERE id = ?', [id]);
-    const admin = adminRows[0];
-    if (!admin) {
+    // Check by admins.id OR admins.user_id OR directly in users table
+    let [adminRows] = await db.query('SELECT * FROM admins WHERE id = ? OR user_id = ?', [id, id]);
+    let admin = adminRows[0];
+
+    let userIdToDelete = null;
+    let adminName = '';
+    let adminEmail = '';
+
+    if (admin) {
+      userIdToDelete = admin.user_id;
+      const [userRows] = await db.query('SELECT name, email FROM users WHERE id = ?', [userIdToDelete]);
+      if (userRows[0]) {
+        adminName = userRows[0].name;
+        adminEmail = userRows[0].email;
+      }
+    } else {
+      // Check if user exists in users table with role admin or employer
+      const [userRows] = await db.query('SELECT * FROM users WHERE id = ?', [id]);
+      if (userRows[0]) {
+        userIdToDelete = userRows[0].id;
+        adminName = userRows[0].name;
+        adminEmail = userRows[0].email;
+      }
+    }
+
+    if (!userIdToDelete) {
       return res.status(404).json({
         success: false,
         message: 'Admin not found.',
       });
     }
 
-    // Delete user (Cascade should handle admin, but we delete user explicitly)
-    await db.query('DELETE FROM users WHERE id = ?', [admin.user_id]);
+    // Delete associated admin records and user record
+    await db.query('DELETE FROM admins WHERE user_id = ? OR id = ?', [userIdToDelete, id]);
+    await db.query('DELETE FROM users WHERE id = ?', [userIdToDelete]);
+
+    // Log the deletion to Audit Logs
+    await auditService.log({
+      userId: req.user?.id || 1,
+      action: 'DELETE_ADMIN',
+      details: `Deleted Admin: ${adminName || 'Admin'} (${adminEmail || 'N/A'}) [User ID: #${userIdToDelete}]`,
+      ipAddress: req.ip || req.connection?.remoteAddress
+    });
 
     res.json({
       success: true,
@@ -2206,6 +2239,69 @@ const deleteCustomPlanRequest = async (req, res, next) => {
   } catch (error) { next(error); }
 };
 
+/**
+ * ============================================================================
+ * AUDIT LOGS MANAGEMENT
+ * ============================================================================
+ */
+
+/**
+ * Get Paginated Audit Logs with Search and Multi-Filtering
+ */
+const getAuditLogs = async (req, res, next) => {
+  try {
+    const { page, limit, search, action, startDate, endDate, userId, role } = req.query;
+    const result = await auditService.getAuditLogs({
+      page,
+      limit,
+      search,
+      action,
+      startDate,
+      endDate,
+      userId,
+      role
+    });
+
+    res.json({
+      success: true,
+      data: result.logs,
+      pagination: result.pagination
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get Audit Logs Aggregated Statistics
+ */
+const getAuditStats = async (req, res, next) => {
+  try {
+    const stats = await auditService.getStats();
+    res.json({
+      success: true,
+      data: stats
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Get Distinct Audit Action Types for Dropdown Filter
+ */
+const getAuditActions = async (req, res, next) => {
+  try {
+    const actions = await auditService.getUniqueActions();
+    res.json({
+      success: true,
+      data: actions
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getDashboard,
   createAdmin,
@@ -2258,6 +2354,12 @@ module.exports = {
   // Custom Plan Requests
   getCustomPlanRequests,
   updateCustomPlanRequestStatus,
-  deleteCustomPlanRequest
+  deleteCustomPlanRequest,
+
+  // Audit Logs
+  getAuditLogs,
+  getAuditStats,
+  getAuditActions
 };
+
 

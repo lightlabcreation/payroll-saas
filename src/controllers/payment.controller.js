@@ -149,8 +149,8 @@ const verifyRazorpayPayment = async (req, res, next) => {
       [plan.name, empId]
     );
     await connection.query(
-      'UPDATE employers SET status = "active", subscription_status = "active", subscription_plan = ?, updated_at = NOW() WHERE id = ?',
-      [plan.name, empId]
+      'UPDATE employers SET status = "active", updated_at = NOW() WHERE id = ?',
+      [empId]
     );
 
     // 7. Update User status to active

@@ -30,6 +30,8 @@ uploads - Copy/
 # Database
 *.sqlite
 *.db
+backups/
+*.json.gz
 
 # IDE
 .vscode/

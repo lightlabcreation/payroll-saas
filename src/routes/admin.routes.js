@@ -125,6 +125,12 @@ const handleTicketAttachment = (req, res, next) => {
 router.get('/tickets', supportTicketController.getAllTickets);
 router.post('/tickets', handleTicketAttachment, supportTicketController.createTicket);
 router.post('/tickets/:id/reply', supportTicketController.addReply);
+router.put('/tickets/:id/status', supportTicketController.updateTicketStatus);
+
+// Audit Logs Management (Admin)
+router.get('/audit-logs', adminController.getAuditLogs);
+router.get('/audit-logs/stats', adminController.getAuditStats);
+router.get('/audit-logs/actions', adminController.getAuditActions);
 
 module.exports = router;
 

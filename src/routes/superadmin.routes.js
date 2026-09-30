@@ -89,6 +89,11 @@ router.put('/tickets/:id/status', supportTicketController.updateTicketStatus);
 router.get('/email-logs', supportTicketController.getEmailLogs);
 router.post('/email-test', supportTicketController.testEmailConfig);
 
+// Audit Logs Management
+router.get('/audit-logs', superadminController.getAuditLogs);
+router.get('/audit-logs/stats', superadminController.getAuditStats);
+router.get('/audit-logs/actions', superadminController.getAuditActions);
+
 // Profile
 router.put('/profile', superadminController.updateProfile);
 router.get('/profile', superadminController.getProfile);

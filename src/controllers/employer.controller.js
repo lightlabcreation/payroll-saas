@@ -1,5 +1,6 @@
 const db = require('../config/mysql');
 const bcrypt = require('bcrypt');
+const auditService = require('../services/audit.service');
 
 /**
  * Get Employer Dashboard Data
@@ -144,6 +145,13 @@ VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
       success: true,
       message: 'Job posted successfully.',
       data: formatted,
+    });
+
+    auditService.log({
+      userId: req.user.id,
+      action: 'POST_JOB',
+      details: `Employer posted new job vacancy: "${jobData.title}" (${jobData.job_type || 'Full-time'})`,
+      ipAddress: req.ip || req.socket?.remoteAddress
     });
   } catch (error) {
     next(error);
@@ -774,6 +782,13 @@ VALUES(?, ?, ?, ?, ?, ?, 'active', NOW(), NOW())`,
 
     await connection.commit();
 
+    auditService.log({
+      userId: req.user.id,
+      action: 'CREATE_EMPLOYEE',
+      details: `Employer added employee: ${name.trim()} (${email.trim()}) - Role: ${finalJobTitle}`,
+      ipAddress: req.ip || req.socket?.remoteAddress
+    });
+
     res.status(201).json({
       success: true,
       message: 'Employee added successfully'
@@ -883,6 +898,13 @@ const updateEmployee = async (req, res, next) => {
       message: 'Employee updated successfully.',
       data: formatted,
     });
+
+    auditService.log({
+      userId: req.user.id,
+      action: 'UPDATE_EMPLOYEE',
+      details: `Employer updated employee record (ID: ${employeeId})`,
+      ipAddress: req.ip || req.socket?.remoteAddress
+    });
   } catch (error) {
     if (connection) await connection.rollback();
     next(error);
@@ -921,6 +943,13 @@ const deleteEmployee = async (req, res, next) => {
     await connection.query('DELETE FROM users WHERE id = ?', [userId]);
 
     await connection.commit();
+
+    auditService.log({
+      userId: req.user.id,
+      action: 'DELETE_EMPLOYEE',
+      details: `Employer deleted employee ID: ${employeeId}`,
+      ipAddress: req.ip || req.socket?.remoteAddress
+    });
 
     res.json({
       success: true,
@@ -1044,6 +1073,13 @@ VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NOW(), NOW())`,
     );
 
     await connection.commit();
+
+    auditService.log({
+      userId: req.user.id,
+      action: 'CREATE_VENDOR',
+      details: `Employer created vendor: ${name.trim()} (${email.trim()})`,
+      ipAddress: req.ip || req.socket?.remoteAddress
+    });
 
     res.status(201).json({
       success: true,
@@ -1294,6 +1330,13 @@ VALUES(?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
       message: existing.length > 0 ? 'Attendance updated successfully.' : 'Attendance marked successfully.',
       data: result,
     });
+
+    auditService.log({
+      userId: req.user.id,
+      action: 'MARK_ATTENDANCE',
+      details: `Employer recorded attendance for Employee ID: ${employeeId} on ${date} (Status: ${status || 'present'})`,
+      ipAddress: req.ip || req.socket?.remoteAddress
+    });
   } catch (error) {
     next(error);
   }
@@ -1343,6 +1386,13 @@ const createTraining = async (req, res, next) => {
       success: true,
       message: 'Training created successfully.',
       data: training[0],
+    });
+
+    auditService.log({
+      userId: req.user.id,
+      action: 'CREATE_TRAINING',
+      details: `Employer created training program: "${title}" (Instructor: ${tName})`,
+      ipAddress: req.ip || req.socket?.remoteAddress
     });
   } catch (error) {
     next(error);
@@ -1581,6 +1631,13 @@ VALUES(?, ?, 'salary_credit', ?, ?, 'success', NOW(), NOW(), NOW())
 
     await connection.commit();
 
+    auditService.log({
+      userId: req.user.id,
+      action: 'PAY_SALARY',
+      details: `Employer processed salary payment of ₹${salaryAmount.toLocaleString()} to ${employee.u_name} (${payMonth} ${payYear})`,
+      ipAddress: req.ip || req.socket?.remoteAddress
+    });
+
     res.status(201).json({
       success: true,
       message: 'Salary paid successfully.',
@@ -1668,6 +1725,13 @@ VALUES(?, ?, 'vendor_payment', ?, ?, ?, ?, 'success', ?, ?, NOW(), NOW(), NOW())
 
     await connection.commit();
 
+    auditService.log({
+      userId: req.user.id,
+      action: 'PAY_VENDOR',
+      details: `Employer processed vendor payout of ₹${payAmount.toLocaleString()} to ${vendor.company_name || vendor.u_name}`,
+      ipAddress: req.ip || req.socket?.remoteAddress
+    });
+
     res.status(201).json({
       success: true,
       message: 'Vendor payment processed successfully.',
@@ -1740,6 +1804,14 @@ VALUES(?, ?, ?, 'credit', ?, 'Employer Credit', NOW(), NOW())`,
     await connection.query('UPDATE employees SET credit_balance = credit_balance + ?, updated_at = NOW() WHERE user_id = ?', [amount, employeeUserId]);
 
     await connection.commit();
+
+    auditService.log({
+      userId: req.user.id,
+      action: 'ASSIGN_CREDIT',
+      details: `Employer assigned ${amount} credits to Employee ID: ${employeeId}`,
+      ipAddress: req.ip || req.socket?.remoteAddress
+    });
+
     res.json({ success: true, message: 'Credit assigned successfully.' });
   } catch (error) {
     if (connection) await connection.rollback();
@@ -1795,6 +1867,13 @@ const requestCredit = async (req, res, next) => {
       INSERT INTO transactions (user_id, employer_id, type, amount, description, status, date, created_at, updated_at)
       VALUES (?, ?, 'credit', ?, ?, 'pending', NOW(), NOW(), NOW())
     `, [req.user.id, employer.id, amount, reason || 'Credit Request']);
+
+    auditService.log({
+      userId: req.user.id,
+      action: 'REQUEST_CREDIT',
+      details: `Employer requested ${amount} credits for ${employer.company_name || 'account'}`,
+      ipAddress: req.ip || req.socket?.remoteAddress
+    });
 
     res.json({
       success: true,

@@ -16,7 +16,7 @@ const creditRoutes = require('./routes/credit.routes');
 const jobseekerRoutes = require('./routes/jobseeker.routes');
 const profileRoutes = require('./routes/profile.routes');
 const paymentRoutes = require('./routes/payment.routes');
-
+const backupRoutes = require('./routes/backup.routes');
 
 const app = express();
 // Force restart timestamp: Request Refactor Complete
@@ -58,6 +58,7 @@ app.get('/health', (req, res) => {
 
 // API Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/superadmin/backups', backupRoutes);
 app.use('/api/superadmin', superadminRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/admin/credits', creditRoutes); // Admin credit routes

@@ -1,5 +1,6 @@
 const db = require('../config/mysql');
 const path = require('path');
+const auditService = require('../services/audit.service');
 
 // Helper to get or create job seeker entry in job_seekers table (for extra profile info)
 const getJobSeekerId = async (userId) => {
@@ -106,6 +107,13 @@ const submitResume = async (req, res, next) => {
             VALUES (?, ?, ?, ?, 1, 1, NOW(), NOW())
         `, [req.user.id, filePath, finalTitle, resume_data || null]);
 
+        auditService.log({
+            userId: req.user.id,
+            action: 'RESUME_UPLOAD',
+            details: `JobSeeker uploaded resume: "${finalTitle}"`,
+            ipAddress: req.ip || req.socket?.remoteAddress
+        });
+
         res.json({
             success: true,
             message: 'Resume uploaded successfully',
@@ -186,6 +194,14 @@ const applyJob = async (req, res, next) => {
         await connection.query('UPDATE jobs SET applicants_count = applicants_count + 1 WHERE id = ?', [jobId]);
 
         await connection.commit();
+
+        auditService.log({
+            userId: req.user.id,
+            action: 'JOB_APPLICATION',
+            details: `JobSeeker (${user[0].name}) applied for Job ID: ${jobId}`,
+            ipAddress: req.ip || req.socket?.remoteAddress
+        });
+
         res.json({ success: true, message: 'Application submitted successfully.' });
     } catch (err) {
         await connection.rollback();
@@ -247,6 +263,14 @@ const withdrawApplication = async (req, res, next) => {
         await db.query('UPDATE jobs SET applicants_count = GREATEST(0, applicants_count - 1) WHERE id = ?', [app[0].job_id]);
 
         await db.query('DELETE FROM job_applications WHERE id = ?', [id]);
+
+        auditService.log({
+            userId: req.user.id,
+            action: 'WITHDRAW_APPLICATION',
+            details: `JobSeeker withdrew job application #${id}`,
+            ipAddress: req.ip || req.socket?.remoteAddress
+        });
+
         res.json({ success: true, message: 'Application withdrawn successfully' });
     } catch (err) { next(err); }
 };
@@ -370,6 +394,13 @@ const updateProfile = async (req, res, next) => {
                 `, [jobSeekerId, edu.degree, edu.institution, edu.institution, edu.duration]);
             }
         }
+
+        auditService.log({
+            userId: req.user.id,
+            action: 'PROFILE_UPDATE',
+            details: `JobSeeker updated profile details (Industry: ${final_industry || 'General'}, Location: ${final_location || 'Not Specified'})`,
+            ipAddress: req.ip || req.socket?.remoteAddress
+        });
 
         res.json({ success: true, message: 'Profile updated successfully' });
     } catch (err) { next(err); }

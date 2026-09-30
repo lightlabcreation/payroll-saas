@@ -1,4 +1,5 @@
 const db = require('../config/mysql');
+const auditService = require('../services/audit.service');
 
 /**
  * Get Vendor Dashboard Data
@@ -97,6 +98,13 @@ const updateContractDetails = async (req, res, next) => {
     }
 
     const [updated] = await db.query('SELECT * FROM vendors WHERE id = ?', [vendor.id]);
+
+    auditService.log({
+      userId: req.user.id,
+      action: 'UPDATE_CONTRACT',
+      details: `Vendor (${vendor.company_name || vendor.contact_person}) updated contract profile details`,
+      ipAddress: req.ip || req.socket?.remoteAddress
+    });
 
     res.json({
       success: true,

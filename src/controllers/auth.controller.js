@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const { getLoginRedirect, getDashboardRoute } = require('../middlewares/role.middleware');
 const emailService = require('../services/email.service');
 const activationService = require('../services/activation.service');
+const auditService = require('../services/audit.service');
 
 /**
  * Register a new user
@@ -106,6 +107,14 @@ const register = async (req, res, next) => {
       planName: userRole.toUpperCase() + ' Account'
     }).catch(err => console.error('[BREVO] Error sending registration welcome email:', err.message));
 
+    // Audit Log Registration
+    auditService.log({
+      userId: userId,
+      action: 'USER_REGISTER',
+      details: `New ${userRole.toUpperCase()} registered: ${name.trim()} (${normalizedEmail})`,
+      ipAddress: req.ip || req.socket?.remoteAddress
+    });
+
     res.status(201).json({
       success: true,
       message: 'Registration successful.',
@@ -191,7 +200,7 @@ const login = async (req, res, next) => {
     // Check Subscription Expiry for Employer Accounts
     if (user.role === 'employer') {
       const [empRows] = await db.query(
-        `SELECT e.id, e.status, e.subscription_status, s.end_date 
+        `SELECT e.id, e.status, s.status as subscription_status, s.end_date 
          FROM employers e 
          LEFT JOIN subscriptions s ON e.id = s.employer_id AND s.status = 'active'
          WHERE e.user_id = ?`,
@@ -202,7 +211,8 @@ const login = async (req, res, next) => {
         const isExpired = emp.subscription_status === 'expired' || 
                           (emp.end_date && new Date(emp.end_date) <= new Date());
         if (isExpired) {
-          await db.query("UPDATE employers SET status = 'inactive', subscription_status = 'expired' WHERE id = ?", [emp.id]);
+          await db.query("UPDATE employers SET status = 'inactive' WHERE id = ?", [emp.id]);
+          await db.query("UPDATE subscriptions SET status = 'expired' WHERE employer_id = ?", [emp.id]);
           return res.status(403).json({
             success: false,
             code: 'SUBSCRIPTION_EXPIRED',
@@ -220,6 +230,14 @@ const login = async (req, res, next) => {
     const tokens = generateTokens(user);
 
     console.log(`[LOGIN] Successful login for: ${user.email} (Role: ${user.role})`);
+
+    // Audit Log Login
+    auditService.log({
+      userId: user.id,
+      action: 'USER_LOGIN',
+      details: `${user.role ? user.role.toUpperCase() : 'USER'} logged in successfully: ${user.name || user.email}`,
+      ipAddress: req.ip || req.socket?.remoteAddress
+    });
 
     // Get role-based dashboard redirect
     const redirectInfo = getLoginRedirect(user.role);
@@ -277,6 +295,13 @@ const adminLogin = async (req, res, next) => {
 
     const tokens = generateTokens(user);
     const redirectInfo = getLoginRedirect(user.role);
+
+    auditService.log({
+      userId: user.id,
+      action: 'ADMIN_LOGIN',
+      details: `Admin logged in: ${user.name} (${user.email})`,
+      ipAddress: req.ip || req.socket?.remoteAddress
+    });
 
     res.json({
       success: true,
@@ -388,6 +413,13 @@ const changePassword = async (req, res, next) => {
 
     const hashedPassword = await bcrypt.hash(newPassword, 10);
     await db.query('UPDATE users SET password = ?, updated_at = NOW() WHERE id = ?', [hashedPassword, userId]);
+
+    auditService.log({
+      userId: userId,
+      action: 'PASSWORD_CHANGE',
+      details: `User (${user.email}) changed password successfully`,
+      ipAddress: req.ip || req.socket?.remoteAddress
+    });
 
     res.json({
       success: true,
@@ -507,6 +539,17 @@ const verifyReset = async (req, res, next) => {
 
     // Delete used OTP record to prevent replay attacks
     await db.query('DELETE FROM password_reset_tokens WHERE LOWER(email) = LOWER(?)', [normalizedEmail]);
+
+    // Find user ID for audit log
+    const [userRows] = await db.query('SELECT id, name FROM users WHERE LOWER(email) = LOWER(?)', [normalizedEmail]);
+    const resetUserId = userRows.length > 0 ? userRows[0].id : null;
+
+    auditService.log({
+      userId: resetUserId,
+      action: 'PASSWORD_RESET',
+      details: `Password was reset successfully for account (${normalizedEmail})`,
+      ipAddress: req.ip || req.socket?.remoteAddress
+    });
 
     return res.json({
       success: true,

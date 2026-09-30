@@ -360,6 +360,62 @@ const createCustomPlanRequest = async (req, res, next) => {
   }
 };
 
+/**
+ * Get Privacy Policy Details (Public - Google Play Store & Web Compliance)
+ */
+const getPrivacyPolicy = async (req, res, next) => {
+  try {
+    const policyData = {
+      appName: 'Kiaan Payroll & HRMS Software',
+      companyName: 'Kiaan Technology Private Limited',
+      officialWebsite: 'https://kiaantechnology.com/',
+      supportEmail: 'support@kiaantechnology.com',
+      contactEmail: 'info@kiaantechnology.com',
+      phone: '+91 97521 00980',
+      address: '2341/E, Sudama Nagar, Indore, Madhya Pradesh, India',
+      effectiveDate: 'September 2026',
+      lastUpdated: 'September 2026',
+      jurisdiction: 'India (IT Act 2000, Digital Personal Data Protection Act DPDP 2023) & Global Data Protection (GDPR)',
+      appPermissions: [
+        {
+          permission: 'Location (GPS / Coarse & Fine)',
+          usage: 'Strictly for verifying geo-fenced employee attendance check-in and check-out. Location is not tracked continuously in background.'
+        },
+        {
+          permission: 'Camera & Storage/Photos',
+          usage: 'Used for taking punch-in selfie attendance verification, uploading profile pictures, and submitting reimbursement receipts and KYC documents.'
+        },
+        {
+          permission: 'Push Notifications',
+          usage: 'Delivering crucial alerts such as payslip generation, leave approval notifications, shift changes, and security updates.'
+        },
+        {
+          permission: 'Network & Device State',
+          usage: 'Verifying network connectivity (online/offline PWA sync) and fraud prevention.'
+        }
+      ],
+      dataDeletionPolicy: {
+        instructions: 'Users can request account and data deletion by sending an email from their registered email address to support@kiaantechnology.com or contacting their employer organization administrator. Requests are processed within 30 days.',
+        retentionExceptions: 'Certain transaction records and payroll disbursement logs may be retained as mandated by Indian statutory tax and labor laws.'
+      },
+      grievanceOfficer: {
+        name: 'Data Protection & Grievance Officer',
+        company: 'Kiaan Technology Private Limited',
+        email: 'support@kiaantechnology.com',
+        phone: '+91 97521 00980',
+        address: '2341/E, Sudama Nagar, Indore, Madhya Pradesh, India'
+      }
+    };
+
+    res.json({
+      success: true,
+      data: policyData
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getAllJobs,
   getJobById,
@@ -368,5 +424,6 @@ module.exports = {
   updateCompanyRequestPaymentStatus,
   createRequest,
   createPublicSupportTicket,
-  createCustomPlanRequest
+  createCustomPlanRequest,
+  getPrivacyPolicy
 };

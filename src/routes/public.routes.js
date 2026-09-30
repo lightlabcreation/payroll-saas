@@ -21,4 +21,7 @@ router.post('/support-ticket', publicController.createPublicSupportTicket);
 // Custom Plan Requirement route (Public)
 router.post('/custom-plan-request', publicController.createCustomPlanRequest);
 
+// Privacy Policy route (Public - Google Play Store & Web Compliance)
+router.get('/privacy-policy', publicController.getPrivacyPolicy);
+
 module.exports = router;
