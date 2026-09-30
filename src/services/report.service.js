@@ -19,7 +19,7 @@ class ReportService {
         CREATE TABLE IF NOT EXISTS scheduled_report_logs (
           id INT AUTO_INCREMENT PRIMARY KEY,
           report_type VARCHAR(50) NOT NULL DEFAULT 'WEEKLY_7_DAY_DATA_REPORT',
-          recipient_email VARCHAR(255) NOT NULL,
+          recipient_email VARCHAR(190) NOT NULL,
           status ENUM('success', 'failed', 'retrying') NOT NULL DEFAULT 'success',
           stats_summary JSON NULL,
           backup_filename VARCHAR(255) NULL,
