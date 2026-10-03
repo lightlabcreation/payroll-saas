@@ -9,6 +9,10 @@
     "init:db": "node src/scripts/init-database.js",
     "seed:users": "node src/scripts/seed-all-users.js"
   },
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  },
   "keywords": [
     "payroll",
     "backend",
