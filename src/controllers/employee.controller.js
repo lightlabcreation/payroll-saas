@@ -2,6 +2,7 @@
 const db = require('../config/mysql');
 const bcrypt = require('bcrypt');
 const auditService = require('../services/audit.service');
+const whatsappService = require('../services/whatsapp.service');
 
 /**
  * 1. Dashboard Summary (Optimized)
@@ -363,6 +364,16 @@ const checkIn = async (req, res, next) => {
       details: `Employee checked in (${isLate ? 'Late' : 'On Time'}) from ${location || 'Office'}`,
       ipAddress: req.ip || req.socket?.remoteAddress
     });
+
+    // Non-blocking automated WhatsApp Attendance Alert
+    whatsappService.sendAttendanceAlert({
+      tenantId: emp[0].employer_id || req.user.company_id || 1,
+      employeeName: req.user.name,
+      employeePhone: req.user.phone,
+      date: today,
+      time: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
+      status: isLate ? 'Late' : 'Present'
+    }).catch(err => console.error('[WhatsApp] checkIn alert failed:', err.message));
 
     res.json({ success: true, message: 'Checked in successfully' });
   } catch (err) {

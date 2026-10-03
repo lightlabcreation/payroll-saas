@@ -1,8 +1,8 @@
 require('dotenv').config();
 const https = require('https');
 
-const key1 = process.env.BREVO_API_KEY || "";
-const key2 = process.env.BREVO_API_KEY_FALLBACK || "";
+const key1 = process.env.BREVO_API_KEY_1 || "";
+const key2 = process.env.BREVO_API_KEY_2 || "";
 
 async function testKey(key, label) {
   const payload = JSON.stringify({

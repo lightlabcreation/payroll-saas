@@ -8,6 +8,7 @@ const env = require('./config/env');
 console.debug('[ENV] DB_HOST=%s DB_USER=%s DB_NAME=%s DB_PORT=%s', process.env.DB_HOST, process.env.DB_USER, process.env.DB_NAME, process.env.DB_PORT);
 
 const PORT = parseInt(process.env.PORT || env.port || 5000, 10);
+// Hot reload trigger: Baileys pairing & fast-reconnect 2026-10-01 15:56
 const NODE_ENV = env.nodeEnv || env.node || 'development';
 
 // Prevent duplicate server instances
@@ -159,6 +160,10 @@ process.on('uncaughtException', (err) => {
 
       const startWeeklyBackupReportScheduler = require('./cron/weeklyBackupReport.cron');
       startWeeklyBackupReportScheduler();
+
+      // Auto-restore active WhatsApp sessions
+      const whatsappService = require('./services/whatsapp.service');
+      whatsappService.initAllSessions().catch(() => {});
 
       connected = true;
       break;

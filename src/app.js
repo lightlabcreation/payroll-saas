@@ -17,6 +17,7 @@ const jobseekerRoutes = require('./routes/jobseeker.routes');
 const profileRoutes = require('./routes/profile.routes');
 const paymentRoutes = require('./routes/payment.routes');
 const backupRoutes = require('./routes/backup.routes');
+const whatsappRoutes = require('./routes/whatsapp.routes');
 
 const app = express();
 // Force restart timestamp: Request Refactor Complete
@@ -71,6 +72,8 @@ app.use('/api/credits', creditRoutes); // Employer credit routes
 app.use('/api/jobseeker', jobseekerRoutes);
 app.use('/api/profile', profileRoutes);
 app.use('/api/payment', paymentRoutes);
+app.use('/api/whatsapp', whatsappRoutes);
+app.use('/api/admin/whatsapp', whatsappRoutes);
 const publicController = require('./controllers/public.controller');
 app.post('/api/custom-plan-request', publicController.createCustomPlanRequest);
 

@@ -2313,7 +2313,155 @@ const getAuditActions = async (req, res, next) => {
   }
 };
 
+// ==================== SMTP CONFIGURATION ====================
+const fs = require('fs');
+const path = require('path');
+
+/**
+ * Get current SMTP / Brevo email configuration (API key is masked)
+ */
+const getSMTPConfig = async (req, res, next) => {
+  try {
+    const apiKey = process.env.BREVO_API_KEY ? process.env.BREVO_API_KEY.replace(/['"]/g, '').trim() : '';
+    const maskedKey = apiKey && apiKey.length > 10
+      ? apiKey.substring(0, 10) + '•'.repeat(Math.min(apiKey.length - 10, 20)) + apiKey.slice(-4)
+      : (apiKey ? '••••••••' : '');
+
+    res.json({
+      success: true,
+      data: {
+        brevoApiKey: maskedKey,
+        brevoApiKeySet: !!apiKey,
+        senderName: process.env.BREVO_SENDER_NAME || 'Kiaan Technology Pvt Ltd',
+        senderEmail: process.env.BREVO_SENDER_EMAIL || '',
+        supportEmail: process.env.SUPPORT_NOTIFICATION_EMAIL || '',
+        smtpHost: 'smtp-relay.brevo.com',
+        smtpPort: '587',
+        smtpEncryption: 'TLS',
+        serviceProvider: 'Brevo (Sendinblue)',
+        apiEndpoint: 'https://api.brevo.com/v3/smtp/email',
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Update SMTP / Brevo configuration — updates process.env + rewrites .env file
+ */
+const updateSMTPConfig = async (req, res, next) => {
+  try {
+    const { brevoApiKey, senderName, senderEmail, supportEmail } = req.body;
+
+    if (!senderEmail) {
+      return res.status(400).json({ success: false, message: 'Sender email is required.' });
+    }
+
+    // Update runtime environment
+    if (brevoApiKey && !brevoApiKey.includes('•')) {
+      process.env.BREVO_API_KEY = brevoApiKey;
+    }
+    if (senderName) process.env.BREVO_SENDER_NAME = senderName;
+    if (senderEmail) process.env.BREVO_SENDER_EMAIL = senderEmail;
+    if (supportEmail) process.env.SUPPORT_NOTIFICATION_EMAIL = supportEmail;
+
+    // Update .env file
+    const envPath = path.join(__dirname, '../../.env');
+    if (fs.existsSync(envPath)) {
+      let envContent = fs.readFileSync(envPath, 'utf8');
+
+      const updateEnvVar = (content, key, value) => {
+        const regex = new RegExp(`^${key}=.*$`, 'm');
+        if (regex.test(content)) {
+          return content.replace(regex, `${key}="${value}"`);
+        }
+        return content + `\n${key}="${value}"`;
+      };
+
+      if (brevoApiKey && !brevoApiKey.includes('•')) {
+        envContent = updateEnvVar(envContent, 'BREVO_API_KEY', brevoApiKey);
+      }
+      if (senderName) envContent = updateEnvVar(envContent, 'BREVO_SENDER_NAME', senderName);
+      if (senderEmail) envContent = updateEnvVar(envContent, 'BREVO_SENDER_EMAIL', senderEmail);
+      if (supportEmail) envContent = updateEnvVar(envContent, 'SUPPORT_NOTIFICATION_EMAIL', supportEmail);
+
+      fs.writeFileSync(envPath, envContent, 'utf8');
+    }
+
+    // Log audit
+    await auditService.log({
+      action: 'SMTP_CONFIG_UPDATED',
+      entityType: 'system_config',
+      entityId: null,
+      performedBy: req.user?.id,
+      performedByRole: 'superadmin',
+      details: { senderEmail, senderName, supportEmail, apiKeyUpdated: !!(brevoApiKey && !brevoApiKey.includes('•')) },
+      ipAddress: req.ip
+    }).catch(() => {});
+
+    res.json({ success: true, message: 'SMTP configuration updated successfully. Changes are live immediately.' });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Send a test email to verify SMTP / Brevo configuration
+ */
+const testSMTPConfig = async (req, res, next) => {
+  try {
+    const { testEmail } = req.body;
+    if (!testEmail) {
+      return res.status(400).json({ success: false, message: 'A test recipient email is required.' });
+    }
+
+    const apiKey = process.env.BREVO_API_KEY ? process.env.BREVO_API_KEY.replace(/['"]/g, '').trim() : '';
+    if (!apiKey) {
+      return res.status(400).json({ success: false, message: 'Brevo API Key is not configured. Please save the configuration first.' });
+    }
+
+    const senderEmail = process.env.BREVO_SENDER_EMAIL || 'no-reply@kiaantechnology.com';
+    const senderName = process.env.BREVO_SENDER_NAME || 'Kiaan Technology Pvt Ltd';
+
+    const result = await emailService.sendEmail({
+      toEmail: testEmail,
+      toName: 'SMTP Test',
+      subject: '✅ SMTP Test — Kiaan Payroll & HRMS',
+      htmlContent: `
+        <div style="font-family:Arial,sans-serif;max-width:500px;margin:0 auto;padding:24px;background:#f8fafc;border-radius:12px;">
+          <h2 style="color:#C62828;margin-bottom:8px;">✅ SMTP Configuration Verified</h2>
+          <p style="color:#334155;">This is a test email from your <strong>Kiaan Payroll & HRMS</strong> platform to confirm your Brevo email gateway is working correctly.</p>
+          <table style="width:100%;border-collapse:collapse;margin-top:16px;">
+            <tr><td style="padding:6px 0;color:#64748b;font-size:13px;">Sender Name</td><td style="padding:6px 0;font-weight:600;color:#0f172a;font-size:13px;">${senderName}</td></tr>
+            <tr><td style="padding:6px 0;color:#64748b;font-size:13px;">Sender Email</td><td style="padding:6px 0;font-weight:600;color:#0f172a;font-size:13px;">${senderEmail}</td></tr>
+            <tr><td style="padding:6px 0;color:#64748b;font-size:13px;">Service Provider</td><td style="padding:6px 0;font-weight:600;color:#0f172a;font-size:13px;">Brevo (Sendinblue) REST API v3</td></tr>
+            <tr><td style="padding:6px 0;color:#64748b;font-size:13px;">SMTP Host</td><td style="padding:6px 0;font-weight:600;color:#0f172a;font-size:13px;">smtp-relay.brevo.com:587 (TLS)</td></tr>
+            <tr><td style="padding:6px 0;color:#64748b;font-size:13px;">Sent At</td><td style="padding:6px 0;font-weight:600;color:#0f172a;font-size:13px;">${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST</td></tr>
+          </table>
+          <p style="color:#94a3b8;font-size:12px;margin-top:20px;">If you received this email, your SMTP configuration is working perfectly.</p>
+        </div>
+      `,
+      fromEmail: senderEmail,
+      fromName: senderName,
+      notificationType: 'smtp_test'
+    });
+
+    res.json({
+      success: true,
+      message: `Test email sent successfully to ${testEmail}. Please check your inbox.`,
+      messageId: result?.messageId || null
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: `Failed to send test email: ${error.message || 'Unknown error'}. Please verify your Brevo API key and sender email.`
+    });
+  }
+};
+
 module.exports = {
+
   getDashboard,
   createAdmin,
   getAllAdmins,
@@ -2370,7 +2518,12 @@ module.exports = {
   // Audit Logs
   getAuditLogs,
   getAuditStats,
-  getAuditActions
+  getAuditActions,
+
+  // SMTP Configuration
+  getSMTPConfig,
+  updateSMTPConfig,
+  testSMTPConfig
 };
 
 

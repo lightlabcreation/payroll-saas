@@ -86,8 +86,17 @@ class EmailService {
     notificationType = 'GENERAL_ALERT',
     contextIds = {}
   }) {
-    const senderEmail = fromEmail || this.infoEmail;
-    const senderDisplayName = fromName || this.senderName;
+    // 1. Fetch dynamic settings
+    let dynamicSmtp = null;
+    try {
+      const [rows] = await db.query('SELECT setting_value FROM system_settings WHERE setting_key = "smtp_settings"');
+      if (rows.length > 0) {
+         dynamicSmtp = typeof rows[0].setting_value === 'string' ? JSON.parse(rows[0].setting_value) : rows[0].setting_value;
+      }
+    } catch (e) {}
+
+    const senderEmail = fromEmail || (dynamicSmtp?.senderEmail) || this.infoEmail;
+    const senderDisplayName = fromName || (dynamicSmtp?.senderName) || this.senderName;
 
     // First log as pending
     const logId = await this.logEmailAttempt({
@@ -103,6 +112,45 @@ class EmailService {
       status: 'pending'
     });
 
+    // 2. IF Dynamic SMTP is ACTIVE, USE IT EXCLUSIVELY via Nodemailer
+    if (dynamicSmtp && dynamicSmtp.status && dynamicSmtp.host && dynamicSmtp.username && dynamicSmtp.password) {
+       try {
+         const transporter = nodemailer.createTransport({
+           host: dynamicSmtp.host,
+           port: parseInt(dynamicSmtp.port || '587'),
+           secure: parseInt(dynamicSmtp.port) === 465,
+           auth: {
+             user: dynamicSmtp.username,
+             pass: dynamicSmtp.password
+           }
+         });
+         
+         const fromStr = `"${senderDisplayName}" <${dynamicSmtp.senderEmail || dynamicSmtp.username}>`;
+         const info = await transporter.sendMail({
+           from: fromStr,
+           to: `"${toName || toEmail}" <${toEmail}>`,
+           subject: subject,
+           html: htmlContent,
+           text: textContent
+         });
+         
+         if (logId) {
+           await db.query(
+             `UPDATE email_logs SET status = 'accepted', message_id = ?, updated_at = NOW() WHERE id = ?`,
+             [info.messageId, logId]
+           );
+         }
+         return { success: true, messageId: info.messageId };
+       } catch (err) {
+         console.error('Dynamic SMTP Error:', err);
+         if (logId) {
+           await db.query(`UPDATE email_logs SET status = 'failed', error_message = ?, updated_at = NOW() WHERE id = ?`, [err.message, logId]);
+         }
+         return { success: false, error: err.message };
+       }
+    }
+
+    // 3. Fallback to existing Brevo REST API
     if (!this.apiKey) {
       const errorMsg = 'BREVO_API_KEY is not configured in process.env';
       console.warn(`⚠️ ${errorMsg}`);

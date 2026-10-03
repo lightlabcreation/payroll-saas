@@ -17,7 +17,13 @@ class AuditService {
   async log({ userId = null, action, details, ipAddress = null }) {
     try {
       const detailsStr = typeof details === 'object' ? JSON.stringify(details) : (details ? String(details) : '');
-      const clientIp = ipAddress ? String(ipAddress).substring(0, 45) : null;
+      let clientIp = ipAddress ? String(ipAddress).substring(0, 45) : null;
+      
+      // Normalize localhost IP display
+      if (clientIp === '::1' || clientIp === '127.0.0.1' || clientIp === '::ffff:127.0.0.1') {
+        clientIp = '127.0.0.1 (Local)';
+      }
+
       const actionName = action ? String(action).toUpperCase() : 'UNKNOWN_ACTION';
 
       await db.query(
@@ -121,8 +127,16 @@ class AuditService {
     `;
     const [rows] = await db.query(dataSql, [...params, limitNum, offset]);
 
+    const logsWithFormattedIp = rows.map(row => {
+      let ip = row.ip_address;
+      if (ip === '::1' || ip === '127.0.0.1' || ip === '::ffff:127.0.0.1') {
+        ip = '127.0.0.1 (Local)';
+      }
+      return { ...row, ip_address: ip };
+    });
+
     return {
-      logs: rows,
+      logs: logsWithFormattedIp,
       pagination: {
         total: parseInt(total) || 0,
         page: pageNum,

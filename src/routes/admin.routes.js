@@ -10,6 +10,12 @@ router.use(authorize('admin'));
 
 router.get('/dashboard', adminController.getDashboard);
 router.get('/dashboard-summary', adminController.getDashboardSummary);
+
+// System Settings
+router.get('/settings/:key', adminController.getSystemSetting);
+router.post('/settings', adminController.saveSystemSetting);
+router.post('/settings/smtp/test', adminController.testSmtpConnection);
+
 router.get('/transactions', adminController.getTransactions);
 router.delete('/transactions/:id', adminController.deleteTransaction);
 
@@ -131,6 +137,15 @@ router.put('/tickets/:id/status', supportTicketController.updateTicketStatus);
 router.get('/audit-logs', adminController.getAuditLogs);
 router.get('/audit-logs/stats', adminController.getAuditStats);
 router.get('/audit-logs/actions', adminController.getAuditActions);
+
+// WhatsApp Connectivity (Admin)
+const whatsappController = require('../controllers/whatsapp.controller');
+router.get('/whatsapp/status', whatsappController.getStatus);
+router.post('/whatsapp/connect', whatsappController.connect);
+router.post('/whatsapp/disconnect', whatsappController.disconnect);
+router.put('/whatsapp/preferences', whatsappController.updatePreferences);
+router.post('/whatsapp/test', whatsappController.sendTestMessage);
+router.get('/whatsapp/logs', whatsappController.getLogs);
 
 module.exports = router;
 

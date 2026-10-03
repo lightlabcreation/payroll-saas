@@ -11,7 +11,7 @@ const { generateToken } = require('../utils/jwt');
  */
 const createRazorpayOrder = async (req, res, next) => {
   try {
-    const { plan_id } = req.body;
+    const { plan_id, currency, amount } = req.body;
     const key_id = process.env.RAZORPAY_KEY_ID || 'rzp_test_kiaan_payroll_key';
 
     if (!plan_id) {
@@ -25,8 +25,13 @@ const createRazorpayOrder = async (req, res, next) => {
       return res.status(404).json({ success: false, message: 'Selected plan not found.' });
     }
 
-    const amountInPaise = Math.round(parseFloat(plan.price || 0) * 100);
-    const orderData = await paymentService.createOrder(amountInPaise, 'INR', {
+    const amountInPaise = amount 
+      ? Math.round(parseFloat(amount) * 100) 
+      : Math.round(parseFloat(plan.price || 0) * 100);
+      
+    const finalCurrency = currency || 'INR';
+
+    const orderData = await paymentService.createOrder(amountInPaise, finalCurrency, {
       plan_id: String(plan.id),
       plan_name: plan.name
     });
@@ -38,7 +43,7 @@ const createRazorpayOrder = async (req, res, next) => {
         order_id: orderData.order_id,
         key_id,
         amount: amountInPaise,
-        currency: 'INR',
+        currency: finalCurrency,
         plan_name: plan.name,
         duration_months: plan.duration_months,
         is_live: orderData.is_live

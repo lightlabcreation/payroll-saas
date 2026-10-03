@@ -57,4 +57,13 @@ router.post('/trainings/:trainingId/assign', employerController.assignTrainingTo
 router.post('/employees/:employeeId/pay-salary', employerController.paySalary);
 router.post('/vendors/:vendorId/pay', employerController.payVendor);
 
+// WhatsApp Connectivity (Employer)
+const whatsappController = require('../controllers/whatsapp.controller');
+router.get('/whatsapp/status', whatsappController.getStatus);
+router.post('/whatsapp/connect', whatsappController.connect);
+router.post('/whatsapp/disconnect', whatsappController.disconnect);
+router.put('/whatsapp/preferences', whatsappController.updatePreferences);
+router.post('/whatsapp/test', whatsappController.sendTestMessage);
+router.get('/whatsapp/logs', whatsappController.getLogs);
+
 module.exports = router;

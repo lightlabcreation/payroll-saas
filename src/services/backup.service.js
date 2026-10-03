@@ -6,12 +6,7 @@
 const fs = require('fs');
 const path = require('path');
 const zlib = require('zlib');
-let archiver;
-try {
-  archiver = require('archiver');
-} catch (err) {
-  console.warn('[Backup Service] archiver module not loaded:', err.message);
-}
+const archiver = require('archiver');
 const pool = require('../config/mysql');
 
 // Storage directory for backups
@@ -179,9 +174,6 @@ const generateUploadsBackup = async () => {
       fs.mkdirSync(UPLOADS_DIR, { recursive: true });
     }
 
-    if (!archiver) {
-      return reject(new Error('Archiver module is not available. Please install archiver.'));
-    }
     const output = fs.createWriteStream(targetPath);
     const archive = archiver('zip', { zlib: { level: 9 } });
 
