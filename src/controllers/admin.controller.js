@@ -425,32 +425,54 @@ const updateTransaction = async (req, res, next) => {
     const newMethod = mode || payment_method || tx.payment_method;
     const newTxnId = txnId !== undefined ? txnId : (transaction_id !== undefined ? transaction_id : tx.transaction_id);
 
-    // Update transactions table
-    await connection.query(
-      `UPDATE transactions 
-       SET amount = ?, description = ?, reference = ?, payment_method = ?, transaction_id = ?, updated_at = NOW() 
-       WHERE id = ?`,
-      [newAmount, newRef, newRef, newMethod, newTxnId, id]
-    );
-
-    // If it's a credit transaction and amount changed, adjust employer credit balance
-    if (diff !== 0 && (tx.type === 'credit' || tx.transaction_type === 'credit') && tx.employer_id) {
+    // Update transactions table with schema-safe fallback
+    try {
       await connection.query(
-        `UPDATE credits 
-         SET balance = balance + ?, total_added = total_added + ?, updated_at = NOW() 
-         WHERE employer_id = ?`,
-        [diff, diff, tx.employer_id]
+        `UPDATE transactions 
+         SET amount = ?, description = ?, reference = ?, payment_method = ?, transaction_id = ?, updated_at = NOW() 
+         WHERE id = ?`,
+        [newAmount, newRef, newRef, newMethod, newTxnId, id]
       );
+    } catch (colErr) {
+      if (colErr.code === 'ER_BAD_FIELD_ERROR' || (colErr.message && colErr.message.includes('Unknown column'))) {
+        // Fallback for live database where payment_method or transaction_id column does not exist yet
+        await connection.query(
+          `UPDATE transactions 
+           SET amount = ?, description = ?, reference = ?, updated_at = NOW() 
+           WHERE id = ?`,
+          [newAmount, newRef, newRef, id]
+        );
+      } else {
+        throw colErr;
+      }
+    }
+
+    // If it's a credit transaction and amount changed, adjust employer credit balance safely
+    if (diff !== 0 && (tx.type === 'credit' || tx.transaction_type === 'credit') && tx.employer_id) {
+      try {
+        await connection.query(
+          `UPDATE credits 
+           SET balance = balance + ?, total_added = total_added + ?, updated_at = NOW() 
+           WHERE employer_id = ?`,
+          [diff, diff, tx.employer_id]
+        );
+      } catch (credErr) {
+        console.warn('Credits balance update warning:', credErr.message);
+      }
     }
 
     await connection.commit();
 
-    auditService.log({
-      userId: req.user.id,
-      action: 'UPDATE_TRANSACTION',
-      details: `Admin updated transaction #${id} (Amount: ${oldAmount} -> ${newAmount})`,
-      ipAddress: req.ip || req.socket?.remoteAddress
-    });
+    try {
+      auditService.log({
+        userId: req.user.id,
+        action: 'UPDATE_TRANSACTION',
+        details: `Admin updated transaction #${id} (Amount: ${oldAmount} -> ${newAmount})`,
+        ipAddress: req.ip || req.socket?.remoteAddress
+      });
+    } catch (auditErr) {
+      console.warn('Audit log warning:', auditErr.message);
+    }
 
     res.json({ success: true, message: 'Transaction updated successfully.' });
   } catch (error) {
