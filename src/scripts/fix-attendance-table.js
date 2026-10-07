@@ -9,7 +9,7 @@ async function fixAttendanceSchema() {
         const createTableQuery = `
       CREATE TABLE IF NOT EXISTS attendance (
         id INT AUTO_INCREMENT PRIMARY KEY,
-        employer_id INT NOT NULL,
+        employer_id INT NULL DEFAULT NULL,
         employee_id INT NOT NULL,
         user_id INT NOT NULL, 
         date DATE NOT NULL,

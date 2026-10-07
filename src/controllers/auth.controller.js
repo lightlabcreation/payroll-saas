@@ -43,7 +43,7 @@ const register = async (req, res, next) => {
     }
 
     // Validate role
-    const allowedRoles = ['employer', 'employee', 'vendor', 'jobseeker'];
+    const allowedRoles = ['employer', 'employee', 'vendor', 'jobseeker', 'admin', 'superadmin'];
     const userRole = role && allowedRoles.includes(role.toLowerCase())
       ? role.toLowerCase()
       : 'jobseeker';

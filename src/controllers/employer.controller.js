@@ -296,6 +296,22 @@ const updateJob = async (req, res, next) => {
       });
     }
 
+    // Normalize incoming fields
+    if (req.body.experience_required && !req.body.experience) {
+      req.body.experience = req.body.experience_required;
+    }
+    if (req.body.salary_range && req.body.salary_min === undefined && req.body.salary_max === undefined) {
+      const parts = String(req.body.salary_range).replace(/[^0-9.-]/g, '').split('-');
+      const min = Number(parts[0]);
+      const max = Number(parts[1]);
+      if (!Number.isNaN(min) && !Number.isNaN(max)) {
+        req.body.salary_min = Math.min(min, max);
+        req.body.salary_max = Math.max(min, max);
+      } else if (!Number.isNaN(min)) {
+        req.body.salary_min = min;
+      }
+    }
+
     // Build update query
     const updates = [];
     const params = [];
@@ -480,12 +496,13 @@ const updateApplicationStatus = async (req, res, next) => {
  */
 const getCreditBalance = async (req, res, next) => {
   try {
-    const [empRows] = await db.query('SELECT * FROM employers WHERE user_id = ?', [req.user.id]);
+    let [empRows] = await db.query('SELECT * FROM employers WHERE user_id = ?', [req.user.id]);
     if (empRows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Employer profile not found.',
-      });
+      const [insertRes] = await db.query(
+        'INSERT INTO employers (user_id, company_name, designation, status, created_at, updated_at) VALUES (?, ?, "Manager", "active", NOW(), NOW())',
+        [req.user.id, `${req.user?.name || 'Company'}'s Company`]
+      );
+      [empRows] = await db.query('SELECT * FROM employers WHERE id = ?', [insertRes.insertId]);
     }
     const employer = empRows[0];
 
@@ -684,15 +701,22 @@ const getMyEmployees = async (req, res, next) => {
     }
     const employer = empRows[0];
 
+    let whereClause = 'emp.employer_id = ?';
+    const params = [employer.id];
+    if (employer.company_id) {
+      whereClause = '(emp.employer_id = ? OR emp.company_id = ?)';
+      params.push(employer.company_id);
+    }
+
     const [employees] = await db.query(`
         SELECT emp.*, u.id as u_id, u.name as u_name, u.email as u_email, u.phone as phone, u.status as u_status, u.created_at as u_created_at,
-  bd.account_number, bd.ifsc_code, bd.bank_name
+        bd.account_number, bd.ifsc_code, bd.bank_name
         FROM employees emp
-        JOIN users u ON emp.user_id = u.id
+        LEFT JOIN users u ON emp.user_id = u.id
         LEFT JOIN bank_details bd ON emp.id = bd.employee_id AND bd.is_primary = 1
-        WHERE emp.employer_id = ?
-  ORDER BY emp.created_at DESC
-    `, [employer.id]);
+        WHERE ${whereClause}
+        ORDER BY emp.created_at DESC
+    `, params);
 
     const formatted = employees.map(emp => ({
       ...emp,
@@ -985,13 +1009,24 @@ const getMyVendors = async (req, res, next) => {
     }
     const employer = empRows[0];
 
+    let whereClause = 'v.employer_id = ?';
+    const params = [employer.id];
+    if (employer.company_id) {
+      whereClause = '(v.employer_id = ? OR v.company_id = ?)';
+      params.push(employer.company_id);
+    }
+
     const [vendors] = await db.query(`
-        SELECT v.*, v.service_type as services, v.salary, v.joining_date, u.name as u_name, u.email as u_email, u.phone as u_phone, u.status as u_status 
+        SELECT v.*, v.service_type as services, v.salary, v.joining_date, 
+               COALESCE(u.name, v.contact_person, v.company_name) as u_name, 
+               COALESCE(u.email, v.email) as u_email, 
+               COALESCE(u.phone, v.phone) as u_phone, 
+               COALESCE(u.status, v.status, 'active') as u_status 
         FROM vendors v
-        JOIN users u ON v.user_id = u.id
-        WHERE v.company_id = ? AND (v.employer_id = ? OR v.employer_id IS NULL)
+        LEFT JOIN users u ON v.user_id = u.id
+        WHERE ${whereClause}
   ORDER BY v.created_at DESC
-    `, [employer.company_id, employer.id]);
+    `, params);
 
     const formatted = vendors.map(v => ({
       ...v,
@@ -1083,7 +1118,11 @@ VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', NOW(), NOW())`,
 
     res.status(201).json({
       success: true,
-      message: 'Vendor added successfully'
+      message: 'Vendor added successfully',
+      data: {
+        id: vendorResult.insertId,
+        user_id: userId
+      }
     });
   } catch (error) {
     if (connection) await connection.rollback();
@@ -1189,6 +1228,50 @@ const updateVendor = async (req, res, next) => {
       message: 'Vendor updated successfully.',
       data: formatted,
     });
+  } catch (error) {
+    if (connection) await connection.rollback();
+    next(error);
+  } finally {
+    if (connection) connection.release();
+  }
+};
+
+/**
+ * Delete Vendor
+ */
+const deleteVendor = async (req, res, next) => {
+  const connection = await db.getConnection();
+  await connection.beginTransaction();
+  try {
+    const { vendorId } = req.params;
+    let employer = req.employer;
+    if (!employer) {
+      const [rows] = await connection.execute('SELECT * FROM employers WHERE user_id = ? LIMIT 1', [req.user.id]);
+      if (rows.length > 0) employer = rows[0];
+    }
+    if (!employer) {
+      await connection.rollback();
+      return res.status(404).json({ success: false, message: 'Employer profile not found.' });
+    }
+
+    const [vendorRows] = await connection.query(
+      'SELECT * FROM vendors WHERE id = ? AND (employer_id = ? OR company_id = ?)',
+      [vendorId, employer.id, employer.company_id || employer.id]
+    );
+
+    if (vendorRows.length === 0) {
+      await connection.rollback();
+      return res.status(404).json({ success: false, message: 'Vendor not found or unauthorized.' });
+    }
+
+    const vendor = vendorRows[0];
+    await connection.query('DELETE FROM vendors WHERE id = ?', [vendorId]);
+    if (vendor.user_id) {
+      await connection.query('DELETE FROM users WHERE id = ?', [vendor.user_id]);
+    }
+
+    await connection.commit();
+    res.json({ success: true, message: 'Vendor deleted successfully.' });
   } catch (error) {
     if (connection) await connection.rollback();
     next(error);
@@ -1365,28 +1448,24 @@ const createTraining = async (req, res, next) => {
 
     const { title, description, instructor, trainer_name, start_date, end_date, location, max_participants, category } = req.body;
 
-    if (!title || !start_date || !end_date) {
+    if (!title) {
       return res.status(400).json({
         success: false,
-        message: 'Title, start date, and end date are required.',
+        message: 'Course title is required.',
       });
     }
 
     const tName = trainer_name || instructor || 'N/A';
+    const sDate = start_date ? new Date(start_date) : new Date();
+    const eDate = end_date ? new Date(end_date) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
     const [result] = await db.query(
       `INSERT INTO training_courses(employer_id, title, description, trainer_name, start_date, end_date, location, max_participants, category, status, created_at, updated_at)
        VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', NOW(), NOW())`,
-      [employer.id, title, description || '', tName, new Date(start_date), new Date(end_date), location || 'Virtual', max_participants || 100, category || 'Technical']
+      [employer.id, title, description || '', tName, sDate, eDate, location || 'Virtual', max_participants || 100, category || 'Technical']
     );
 
     const [training] = await db.query('SELECT * FROM training_courses WHERE id = ?', [result.insertId]);
-
-    res.status(201).json({
-      success: true,
-      message: 'Training created successfully.',
-      data: training[0],
-    });
 
     auditService.log({
       userId: req.user.id,
@@ -1394,14 +1473,21 @@ const createTraining = async (req, res, next) => {
       details: `Employer created training program: "${title}" (Instructor: ${tName})`,
       ipAddress: req.ip || req.socket?.remoteAddress
     });
+
+    res.status(201).json({
+      success: true,
+      message: 'Training created successfully.',
+      data: {
+        ...training[0],
+        instructor: training[0].trainer_name || 'N/A',
+        assignments: []
+      },
+    });
   } catch (error) {
     next(error);
   }
 };
 
-/**
- * Get All Trainings
- */
 /**
  * Get All Trainings
  */
@@ -1417,30 +1503,29 @@ const getAllTrainings = async (req, res, next) => {
     }
 
     const [training_courses] = await db.query(
-      'SELECT * FROM training_courses WHERE employer_id = ? ORDER BY start_date DESC',
+      'SELECT * FROM training_courses WHERE employer_id = ? ORDER BY created_at DESC, id DESC',
       [employer.id]
     );
 
-    // Fetch nested assignments with employees/users?
-    // Map assignments to training?
-    // Let's iterate and fetch assignments for now until we optimize with better SQL if needed.
-    // Or single query with GROUP_CONCAT or JSON_ARRAYAGG if MySQL 5.7+
-
     const formatted = await Promise.all(training_courses.map(async (t) => {
       const [assignments] = await db.query(`
-            SELECT ta.*, e.id as emp_id, u.name as emp_name, u.email as emp_email
-            FROM training_enrollments ta
-            JOIN employees e ON ta.employee_id = e.id
-            JOIN users u ON e.user_id = u.id
-            WHERE ta.training_id = ?
-  `, [t.id]);
+        SELECT ta.*, e.id as emp_id, COALESCE(u.name, 'Employee') as emp_name, COALESCE(u.email, '') as emp_email
+        FROM training_enrollments ta
+        LEFT JOIN employees e ON ta.employee_id = e.id
+        LEFT JOIN users u ON e.user_id = u.id
+        WHERE ta.training_id = ?
+      `, [t.id]);
 
       return {
         ...t,
+        instructor: t.trainer_name || t.instructor || 'N/A',
         assignments: assignments.map(a => ({
           ...a,
+          due_date: a.due_date || t.due_date || t.end_date,
+          assigned_date: a.assigned_date || a.created_at || t.start_date,
           employee: {
             id: a.emp_id,
+            name: a.emp_name,
             user: { name: a.emp_name, email: a.emp_email }
           },
           emp_id: undefined, emp_name: undefined, emp_email: undefined
@@ -1460,15 +1545,19 @@ const getAllTrainings = async (req, res, next) => {
 /**
  * Assign Training to Employees
  */
-/**
- * Assign Training to Employees
- */
 const assignTrainingToEmployees = async (req, res, next) => {
   try {
     const { trainingId } = req.params;
-    const { employee_ids } = req.body;
+    const { employee_ids, due_date } = req.body;
     const [empRows] = await db.query('SELECT * FROM employers WHERE user_id = ?', [req.user.id]);
     const employer = empRows[0];
+
+    if (!employer) {
+      return res.status(404).json({
+        success: false,
+        message: 'Employer profile not found.',
+      });
+    }
 
     if (!Array.isArray(employee_ids) || employee_ids.length === 0) {
       return res.status(400).json({
@@ -1495,21 +1584,37 @@ const assignTrainingToEmployees = async (req, res, next) => {
       });
     }
 
-    // Create assignments
-    // Note: This needs to handle duplicates if we don't want to re-assign
-    // Manual loop or ON DUPLICATE KEY UPDATE
-    const vals = [];
-    employee_ids.forEach(eid => {
-      vals.push([trainingId, eid, 'assigned']);
-    });
+    const dueDateVal = due_date ? new Date(due_date) : (trainingRows[0].end_date ? new Date(trainingRows[0].end_date) : null);
 
-    // We can use INSERT IGNORE to skip existing assignments
-    await db.query(
-      'INSERT IGNORE INTO training_enrollments (training_id, employee_id, status, created_at, updated_at) VALUES ?',
-      [vals.map(v => [...v, new Date(), new Date()])]
-    );
+    for (const eid of employee_ids) {
+      const [existing] = await db.query('SELECT id FROM training_enrollments WHERE training_id = ? AND employee_id = ?', [trainingId, eid]);
+      if (existing.length > 0) {
+        await db.query(
+          'UPDATE training_enrollments SET due_date = ?, updated_at = NOW() WHERE id = ?',
+          [dueDateVal, existing[0].id]
+        );
+      } else {
+        await db.query(
+          'INSERT INTO training_enrollments (training_id, employee_id, status, due_date, assigned_date, completion_percentage, created_at, updated_at) VALUES (?, ?, ?, ?, CURDATE(), 0, NOW(), NOW())',
+          [trainingId, eid, 'assigned', dueDateVal]
+        );
+      }
 
-    // Fetch assigned
+      // Also sync course_assignments for compatibility
+      const [caExisting] = await db.query('SELECT id FROM course_assignments WHERE training_id = ? AND employee_id = ?', [trainingId, eid]);
+      if (caExisting.length === 0) {
+        await db.query(
+          'INSERT INTO course_assignments (training_id, employee_id, status, assigned_at) VALUES (?, ?, ?, NOW())',
+          [trainingId, eid, 'Assigned']
+        );
+      }
+    }
+
+    // Update training_courses due_date
+    if (dueDateVal) {
+      await db.query('UPDATE training_courses SET due_date = ? WHERE id = ?', [dueDateVal, trainingId]);
+    }
+
     const [assigned] = await db.query('SELECT * FROM training_enrollments WHERE training_id = ? AND employee_id IN (?)', [trainingId, employee_ids]);
 
     res.json({
@@ -1857,9 +1962,13 @@ const requestCredit = async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Amount must be greater than 0.' });
     }
 
-    const [empRows] = await db.query('SELECT * FROM employers WHERE user_id = ?', [req.user.id]);
+    let [empRows] = await db.query('SELECT * FROM employers WHERE user_id = ?', [req.user.id]);
     if (empRows.length === 0) {
-      return res.status(404).json({ success: false, message: 'Employer profile not found.' });
+      const [insertRes] = await db.query(
+        'INSERT INTO employers (user_id, company_name, designation, status, created_at, updated_at) VALUES (?, ?, "Manager", "active", NOW(), NOW())',
+        [req.user.id, `${req.user?.name || 'Company'}'s Company`]
+      );
+      [empRows] = await db.query('SELECT * FROM employers WHERE id = ?', [insertRes.insertId]);
     }
     const employer = empRows[0];
 
@@ -1908,6 +2017,7 @@ module.exports = {
   getMyVendors,
   addVendor,
   updateVendor,
+  deleteVendor,
   // Attendance
   getEmployeeAttendance,
   markAttendance,

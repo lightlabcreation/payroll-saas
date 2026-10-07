@@ -282,41 +282,56 @@ const getProfile = async (req, res, next) => {
 
         const [jobseekerInfo] = await db.query('SELECT * FROM job_seekers WHERE user_id = ?', [req.user.id]);
         const [profile] = await db.query('SELECT * FROM job_seeker_profiles WHERE user_id = ?', [req.user.id]);
-        const [skills] = await db.query('SELECT * FROM job_seeker_skills WHERE job_seeker_id = ?', [jobSeekerId]);
-        const [experience] = await db.query('SELECT * FROM job_seeker_experience WHERE job_seeker_id = ? ORDER BY start_date DESC', [jobSeekerId]);
-        const [education] = await db.query('SELECT * FROM job_seeker_education WHERE job_seeker_id = ? ORDER BY start_year DESC', [jobSeekerId]);
+        const [skillsRows] = await db.query('SELECT skill_name FROM job_seeker_skills WHERE job_seeker_id = ?', [jobSeekerId]);
+        const [experience] = await db.query('SELECT * FROM job_seeker_experience WHERE job_seeker_id = ? ORDER BY id ASC', [jobSeekerId]);
+        const [education] = await db.query('SELECT * FROM job_seeker_education WHERE job_seeker_id = ? ORDER BY id ASC', [jobSeekerId]);
         const [user] = await db.query('SELECT name, email, phone, profile_image FROM users WHERE id = ?', [req.user.id]);
+        const [resumes] = await db.query('SELECT title, file_path FROM resumes WHERE user_id = ? ORDER BY is_default DESC, created_at DESC LIMIT 1', [req.user.id]);
+
+        let skillsList = [];
+        if (jobseekerInfo[0]?.skills) {
+            skillsList = typeof jobseekerInfo[0].skills === 'string'
+                ? jobseekerInfo[0].skills.split(',').map(s => s.trim()).filter(Boolean)
+                : jobseekerInfo[0].skills;
+        } else if (skillsRows.length > 0) {
+            skillsList = skillsRows.map(r => r.skill_name);
+        }
+
+        const jsData = jobseekerInfo[0] || {};
+        const pData = profile[0] || {};
+        const uData = user[0] || {};
 
         res.json({
             success: true,
             data: {
-                ...(user[0] || {}),
-                ...(jobseekerInfo[0] || {}),
-                ...(profile[0] || {}),
-                // Computed/Aliased fields for frontend
-                summary: profile[0]?.professional_summary,
-                professionalSummary: profile[0]?.professional_summary,
-                location: jobseekerInfo[0]?.location || profile[0]?.preferred_location,
-                headline: jobseekerInfo[0]?.level || 'Job Seeker',
-                skills: jobseekerInfo[0]?.skills ? jobseekerInfo[0].skills.split(',') : [],
+                name: uData.name || jsData.name || '',
+                email: uData.email || jsData.email || '',
+                phone: uData.phone || jsData.phone || '',
+                profile_image: uData.profile_image || null,
+                location: jsData.location || pData.preferred_location || '',
+                headline: pData.headline || jsData.level || 'Job Seeker',
+                summary: pData.professional_summary || '',
+                professionalSummary: pData.professional_summary || '',
+                skills: skillsList,
                 experience: experience.map(exp => ({
                     id: exp.id,
-                    title: exp.job_title,
-                    company: exp.company_name,
-                    duration: exp.duration,
-                    description: exp.description
+                    title: exp.job_title || '',
+                    company: exp.company_name || '',
+                    duration: exp.duration || '',
+                    description: exp.description || ''
                 })),
                 education: education.map(edu => ({
                     id: edu.id,
-                    institution: edu.institution || edu.school_name,
-                    degree: edu.degree,
-                    duration: edu.duration
+                    institution: edu.institution || edu.school_name || '',
+                    degree: edu.degree || '',
+                    duration: edu.duration || ''
                 })),
-                industry: profile[0]?.job_industry,
-                role: jobseekerInfo[0]?.current_company || profile[0]?.job_industry,
-                preferred_location: profile[0]?.preferred_location,
-                salary_expectation: profile[0]?.salary_expectation || 'Not Specified',
-                is_visible: profile[0]?.visibility === 'visible'
+                resume: resumes[0]?.title || (resumes[0]?.file_path ? path.basename(resumes[0].file_path) : ''),
+                industry: pData.job_industry || '',
+                role: pData.preferred_role || jsData.current_company || '',
+                preferred_location: pData.preferred_location || jsData.location || '',
+                salary_expectation: pData.salary_expectation || 'Not Specified',
+                is_visible: pData.visibility !== 'hidden'
             }
         });
     } catch (err) { next(err); }
@@ -330,75 +345,130 @@ const updateProfile = async (req, res, next) => {
             job_industry, industry,
             preferred_location, location,
             visibility, is_visible,
-            headline, salary_expectation
+            headline, salary_expectation,
+            role
         } = req.body;
 
         const jobSeekerId = await getJobSeekerId(req.user.id);
 
-        // Map frontend fields to DB fields
-        const final_summary = professional_summary || summary || professionalSummary;
-        const final_industry = job_industry || industry;
-        const final_location = preferred_location || location;
-        const final_visibility = visibility || (is_visible === true ? 'visible' : (is_visible === false ? 'hidden' : 'visible'));
+        // Map frontend aliases
+        const final_summary = professional_summary !== undefined ? professional_summary : (summary !== undefined ? summary : professionalSummary);
+        const final_industry = job_industry !== undefined ? job_industry : industry;
+        const final_location = preferred_location !== undefined ? preferred_location : location;
+        const final_headline = headline !== undefined ? headline : level;
+        const final_role = role !== undefined ? role : current_company;
 
-        // Update Users table
-        if (name || phone) {
-            await db.query('UPDATE users SET name = COALESCE(?, name), phone = COALESCE(?, phone) WHERE id = ?', [name, phone, req.user.id]);
+        let final_visibility = undefined;
+        if (visibility !== undefined) {
+            final_visibility = visibility;
+        } else if (is_visible !== undefined) {
+            final_visibility = is_visible ? 'visible' : 'hidden';
         }
 
-        // Update job_seekers table
-        let skillsStr = skills;
-        if (Array.isArray(skills)) skillsStr = skills.join(',');
+        // 1. Update Users table
+        const userUpdates = [];
+        const userParams = [];
+        if (name !== undefined) { userUpdates.push('name = ?'); userParams.push(name); }
+        if (phone !== undefined) { userUpdates.push('phone = ?'); userParams.push(phone); }
+        if (userUpdates.length > 0) {
+            userParams.push(req.user.id);
+            await db.query(`UPDATE users SET ${userUpdates.join(', ')} WHERE id = ?`, userParams);
+        }
 
-        await db.query(`
-            UPDATE job_seekers 
-            SET name = COALESCE(?, name), phone = COALESCE(?, phone), 
-                skills = COALESCE(?, skills), experience = COALESCE(?, experience), 
-                education = COALESCE(?, education), current_company = COALESCE(?, current_company), 
-                level = COALESCE(?, level), location = COALESCE(?, location)
-            WHERE user_id = ?
-        `, [name, phone, skillsStr, Array.isArray(experience) ? 'Array' : experience, Array.isArray(education) ? 'Array' : education, current_company, level || headline, final_location, req.user.id]);
+        // 2. Update job_seekers table
+        const jsUpdates = [];
+        const jsParams = [];
+        if (name !== undefined) { jsUpdates.push('name = ?'); jsParams.push(name); }
+        if (phone !== undefined) { jsUpdates.push('phone = ?'); jsParams.push(phone); }
+        if (skills !== undefined) {
+            const skillsStr = Array.isArray(skills) ? skills.join(',') : skills;
+            jsUpdates.push('skills = ?'); jsParams.push(skillsStr);
+        }
+        if (final_role !== undefined) { jsUpdates.push('current_company = ?'); jsParams.push(final_role); }
+        if (final_headline !== undefined) { jsUpdates.push('level = ?'); jsParams.push(final_headline); }
+        if (final_location !== undefined) { jsUpdates.push('location = ?'); jsParams.push(final_location); }
+        
+        if (jsUpdates.length > 0) {
+            jsParams.push(req.user.id);
+            await db.query(`UPDATE job_seekers SET ${jsUpdates.join(', ')}, updated_at = NOW() WHERE user_id = ?`, jsParams);
+        }
 
-        // Upsert Profile
+        // 3. Upsert job_seeker_profiles table (ONLY update fields that are provided)
         const [existing] = await db.query('SELECT id FROM job_seeker_profiles WHERE user_id = ?', [req.user.id]);
-        if (existing.length > 0) {
+        if (existing.length === 0) {
             await db.query(`
-                UPDATE job_seeker_profiles 
-                SET professional_summary = ?, job_industry = ?, preferred_location = ?, visibility = ?, salary_expectation = ?
-                WHERE user_id = ?
-            `, [final_summary, final_industry, final_location, final_visibility, salary_expectation, req.user.id]);
+                INSERT INTO job_seeker_profiles (user_id, headline, professional_summary, job_industry, preferred_role, preferred_location, visibility, salary_expectation)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            `, [
+                req.user.id,
+                final_headline || null,
+                final_summary || null,
+                final_industry || null,
+                final_role || null,
+                final_location || null,
+                final_visibility || 'visible',
+                salary_expectation || null
+            ]);
         } else {
-            await db.query(`
-                INSERT INTO job_seeker_profiles (user_id, professional_summary, job_industry, preferred_location, visibility, salary_expectation)
-                VALUES (?, ?, ?, ?, ?, ?)
-            `, [req.user.id, final_summary, final_industry, final_location, final_visibility, salary_expectation]);
+            const profileUpdates = [];
+            const profileParams = [];
+            if (final_headline !== undefined) { profileUpdates.push('headline = ?'); profileParams.push(final_headline); }
+            if (final_summary !== undefined) { profileUpdates.push('professional_summary = ?'); profileParams.push(final_summary); }
+            if (final_industry !== undefined) { profileUpdates.push('job_industry = ?'); profileParams.push(final_industry); }
+            if (final_role !== undefined) { profileUpdates.push('preferred_role = ?'); profileParams.push(final_role); }
+            if (final_location !== undefined) { profileUpdates.push('preferred_location = ?'); profileParams.push(final_location); }
+            if (final_visibility !== undefined) { profileUpdates.push('visibility = ?'); profileParams.push(final_visibility); }
+            if (salary_expectation !== undefined) { profileUpdates.push('salary_expectation = ?'); profileParams.push(salary_expectation); }
+            
+            if (profileUpdates.length > 0) {
+                profileParams.push(req.user.id);
+                await db.query(`UPDATE job_seeker_profiles SET ${profileUpdates.join(', ')} WHERE user_id = ?`, profileParams);
+            }
         }
 
-        // --- Handle Experience and Education Arrays (Sync specialized tables) ---
+        // 4. Handle Skills table sync
+        if (skills !== undefined) {
+            const skillsArray = Array.isArray(skills) 
+                ? skills 
+                : (typeof skills === 'string' ? skills.split(',').map(s => s.trim()).filter(Boolean) : []);
+            await db.query('DELETE FROM job_seeker_skills WHERE job_seeker_id = ?', [jobSeekerId]);
+            for (const s of skillsArray) {
+                await db.query(
+                    'INSERT INTO job_seeker_skills (job_seeker_id, skill_name, created_at) VALUES (?, ?, NOW())',
+                    [jobSeekerId, s]
+                );
+            }
+        }
+
+        // 5. Handle Experience and Education Arrays
         if (Array.isArray(experience)) {
             await db.query('DELETE FROM job_seeker_experience WHERE job_seeker_id = ?', [jobSeekerId]);
             for (const exp of experience) {
-                await db.query(`
-                    INSERT INTO job_seeker_experience (job_seeker_id, job_title, company_name, duration, description)
-                    VALUES (?, ?, ?, ?, ?)
-                `, [jobSeekerId, exp.title, exp.company, exp.duration, exp.description]);
+                if (exp.title || exp.company || exp.duration || exp.description) {
+                    await db.query(`
+                        INSERT INTO job_seeker_experience (job_seeker_id, job_title, company_name, duration, description, created_at)
+                        VALUES (?, ?, ?, ?, ?, NOW())
+                    `, [jobSeekerId, exp.title || '', exp.company || '', exp.duration || '', exp.description || '']);
+                }
             }
         }
 
         if (Array.isArray(education)) {
             await db.query('DELETE FROM job_seeker_education WHERE job_seeker_id = ?', [jobSeekerId]);
             for (const edu of education) {
-                await db.query(`
-                    INSERT INTO job_seeker_education (job_seeker_id, degree, institution, school_name, duration)
-                    VALUES (?, ?, ?, ?, ?)
-                `, [jobSeekerId, edu.degree, edu.institution, edu.institution, edu.duration]);
+                if (edu.degree || edu.institution || edu.duration) {
+                    await db.query(`
+                        INSERT INTO job_seeker_education (job_seeker_id, degree, institution, school_name, duration, created_at)
+                        VALUES (?, ?, ?, ?, ?, NOW())
+                    `, [jobSeekerId, edu.degree || '', edu.institution || '', edu.institution || '', edu.duration || '']);
+                }
             }
         }
 
         auditService.log({
             userId: req.user.id,
             action: 'PROFILE_UPDATE',
-            details: `JobSeeker updated profile details (Industry: ${final_industry || 'General'}, Location: ${final_location || 'Not Specified'})`,
+            details: `JobSeeker updated profile details`,
             ipAddress: req.ip || req.socket?.remoteAddress
         });
 

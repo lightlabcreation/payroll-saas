@@ -24,4 +24,7 @@ router.post('/custom-plan-request', publicController.createCustomPlanRequest);
 // Privacy Policy route (Public - Google Play Store & Web Compliance)
 router.get('/privacy-policy', publicController.getPrivacyPolicy);
 
+// How To Use Operating Guide route (Public)
+router.get('/how-to-use', publicController.getHowToUseGuides);
+
 module.exports = router;

@@ -43,6 +43,7 @@ router.delete('/employees/:employeeId', employerController.deleteEmployee);
 router.get('/vendors', employerController.getMyVendors);
 router.post('/vendors', employerController.addVendor);
 router.put('/vendors/:vendorId', employerController.updateVendor);
+router.delete('/vendors/:vendorId', employerController.deleteVendor);
 
 // Attendance Management
 router.get('/employees/:employeeId/attendance', employerController.getEmployeeAttendance);

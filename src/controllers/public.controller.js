@@ -416,6 +416,70 @@ const getPrivacyPolicy = async (req, res, next) => {
   }
 };
 
+// Get How To Use Guides (Public endpoint for operating manuals)
+const getHowToUseGuides = async (req, res, next) => {
+  try {
+    const { role } = req.query;
+    
+    const guides = {
+      superadmin: {
+        roleKey: 'superadmin',
+        title: 'Super Admin Dashboard - How to Use Guide',
+        subtitle: 'Comprehensive guide to managing multi-tenant companies, subscription plans, tenant onboarding, root administration, and database backups.',
+        badge: 'SUPER ADMIN DASHBOARD',
+        totalModules: 10
+      },
+      admin: {
+        roleKey: 'admin',
+        title: 'Company Admin Dashboard - How to Use Guide',
+        subtitle: 'Step-by-step operating guide for managing employers, workforce attendance, credit wallet, WhatsApp broadcasts, and 1-click payroll.',
+        badge: 'COMPANY ADMIN DASHBOARD',
+        totalModules: 12
+      },
+      employer: {
+        roleKey: 'employer',
+        title: 'Employer Dashboard - How to Use Guide',
+        subtitle: 'Operational guide for managing department staff, tracking daily attendance, assigning trainings, and executing 1-click salary payouts.',
+        badge: 'EMPLOYER DASHBOARD',
+        totalModules: 7
+      },
+      employee: {
+        roleKey: 'employee',
+        title: 'Employee Portal - How to Use Guide',
+        subtitle: 'Personal guide for marking attendance, downloading payslips, accessing training modules, applying for leaves, and updating profile KYC.',
+        badge: 'EMPLOYEE PORTAL',
+        totalModules: 5
+      },
+      jobseeker: {
+        roleKey: 'jobseeker',
+        title: 'Job Seeker Portal - How to Use Guide',
+        subtitle: 'Step-by-step guide for creating candidate profiles, uploading resumes, applying for verified jobs, and tracking applications.',
+        badge: 'JOB SEEKER PORTAL',
+        totalModules: 5
+      },
+      vendor: {
+        roleKey: 'vendor',
+        title: 'Vendor & Partner Portal - How to Use Guide',
+        subtitle: 'Operational guide for submitting corporate invoices, tracking client payments, and managing active business contracts.',
+        badge: 'VENDOR PORTAL',
+        totalModules: 2
+      }
+    };
+
+    let result = guides;
+    if (role && guides[role.toLowerCase()]) {
+      result = guides[role.toLowerCase()];
+    }
+
+    res.json({
+      success: true,
+      data: result
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getAllJobs,
   getJobById,
@@ -425,5 +489,6 @@ module.exports = {
   createRequest,
   createPublicSupportTicket,
   createCustomPlanRequest,
-  getPrivacyPolicy
+  getPrivacyPolicy,
+  getHowToUseGuides
 };

@@ -3,6 +3,12 @@ const router = express.Router();
 const adminController = require('../controllers/admin.controller');
 const { authenticate, authorize } = require('../middlewares/auth.middleware');
 const { checkEmployeeLimit } = require('../middlewares/planLimits.middleware');
+const upload = require('../middlewares/upload.middleware');
+const handleMaterialUpload = (req, res, next) => {
+  upload.single('file')(req, res, (err) => {
+    next();
+  });
+};
 
 // All routes require authentication and admin role
 router.use(authenticate);
@@ -17,6 +23,7 @@ router.post('/settings', adminController.saveSystemSetting);
 router.post('/settings/smtp/test', adminController.testSmtpConnection);
 
 router.get('/transactions', adminController.getTransactions);
+router.put('/transactions/:id', adminController.updateTransaction);
 router.delete('/transactions/:id', adminController.deleteTransaction);
 
 // Employer CRUD
@@ -78,7 +85,7 @@ router.post('/attendance', adminController.markAttendance);
 router.get('/trainings', adminController.getTrainings);
 router.post('/trainings', adminController.createTraining);
 router.post('/trainings/assign', adminController.assignTraining);
-router.post('/trainings/material', adminController.uploadTrainingMaterial);
+router.post('/trainings/material', handleMaterialUpload, adminController.uploadTrainingMaterial);
 router.get('/trainings/materials', adminController.getTrainingMaterials);
 router.post('/trainings/completion', adminController.markTrainingCompletion);
 
@@ -121,7 +128,6 @@ router.delete('/job-seekers/:id', adminController.deleteJobSeeker);
 
 // Support Ticket Management for HR Admin (Routed to support@kiaantechnology.com)
 const supportTicketController = require('../controllers/supportTicket.controller');
-const upload = require('../middlewares/upload.middleware');
 const handleTicketAttachment = (req, res, next) => {
   upload.single('attachment')(req, res, (err) => {
     next();
