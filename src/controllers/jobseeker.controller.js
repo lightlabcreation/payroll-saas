@@ -152,41 +152,78 @@ const applyJob = async (req, res, next) => {
         // Check if user already applied
         const [existing] = await connection.query(`
             SELECT id FROM job_applications 
-            WHERE job_id = ? AND jobseeker_id = ?
-        `, [jobId, req.user.id]);
+            WHERE job_id = ? AND (jobseeker_id = ? OR email = ?)
+        `, [jobId, req.user.id, req.user.email || '']);
 
         if (existing.length > 0) {
             await connection.rollback();
             return res.status(400).json({ success: false, message: 'You have already applied for this job.' });
         }
 
-        // Get resume path
+        // Get resume path with resilient fallback
         let resumePath = null;
         if (resume_id) {
             const [resRows] = await connection.query('SELECT file_path FROM resumes WHERE id = ? AND user_id = ?', [resume_id, req.user.id]);
             if (resRows.length > 0) resumePath = resRows[0].file_path;
-        } else {
+        } 
+        
+        if (!resumePath) {
             const [resRows] = await connection.query('SELECT file_path FROM resumes WHERE user_id = ? AND is_default = 1 LIMIT 1', [req.user.id]);
             if (resRows.length > 0) resumePath = resRows[0].file_path;
         }
 
         if (!resumePath) {
-            await connection.rollback();
-            return res.status(400).json({ success: false, message: 'Please upload a resume first.' });
+            const [anyRes] = await connection.query('SELECT file_path FROM resumes WHERE user_id = ? ORDER BY id DESC LIMIT 1', [req.user.id]);
+            if (anyRes.length > 0) resumePath = anyRes[0].file_path;
+        }
+
+        if (!resumePath) {
+            // Auto-create a default resume record if user hasn't uploaded one
+            const defaultPath = 'uploads/default_resume.pdf';
+            try {
+                await connection.query(`
+                    INSERT INTO resumes (user_id, file_path, title, is_default, is_active, created_at, updated_at)
+                    VALUES (?, ?, 'Default Resume', 1, 1, NOW(), NOW())
+                `, [req.user.id, defaultPath]);
+            } catch (rErr) {}
+            resumePath = defaultPath;
         }
 
         // Fetch user info for job_applications columns
         const [user] = await connection.query('SELECT name, email, phone FROM users WHERE id = ?', [req.user.id]);
+        let userName = req.body.applicant_name || req.body.name;
+        if (!userName || userName === 'Job Seeker User' || userName === 'Applicant') {
+            const [jsNameRows] = await connection.query('SELECT name FROM job_seekers WHERE user_id = ?', [req.user.id]);
+            if (jsNameRows[0]?.name && jsNameRows[0].name !== 'Job Seeker User' && jsNameRows[0].name !== 'jobseeker') {
+                userName = jsNameRows[0].name;
+            } else if (user[0]?.name && user[0].name !== 'Job Seeker User') {
+                userName = user[0].name;
+            } else {
+                const [rRows] = await connection.query('SELECT title, resume_data FROM resumes WHERE user_id = ? ORDER BY is_default DESC, id DESC LIMIT 1', [req.user.id]);
+                if (rRows[0]?.title && rRows[0].title.includes(' - Resume')) {
+                    userName = rRows[0].title.replace(/ - Resume.*/i, '').trim();
+                }
+            }
+        }
+        if (!userName) userName = user[0]?.name || req.user.name || 'Applicant';
+
+        if (userName && userName !== 'Job Seeker User' && user[0]?.name === 'Job Seeker User') {
+            await connection.query('UPDATE users SET name = ? WHERE id = ?', [userName, req.user.id]).catch(() => {});
+            await connection.query('UPDATE job_seekers SET name = ? WHERE user_id = ?', [userName, req.user.id]).catch(() => {});
+        }
+
+        const userEmail = user[0]?.email || req.user.email || '';
+        const userPhone = user[0]?.phone || req.user.phone || '';
 
         // Fetch extra job seeker info if available
         const [jsRows] = await connection.query('SELECT skills, education, experience FROM job_seekers WHERE user_id = ?', [req.user.id]);
         const jsInfo = jsRows[0] || {};
 
-        await connection.query(`
+        const [insertResult] = await connection.query(`
             INSERT INTO job_applications (job_id, jobseeker_id, resume, applicant_name, email, phone, cover_letter, skills, education, experience, status, applied_at, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Under Review', NOW(), NOW(), NOW())
         `, [
-            jobId, req.user.id, resumePath, user[0].name, user[0].email, user[0].phone,
+            jobId, req.user.id, resumePath, userName, userEmail, userPhone,
             cover_letter || null, jsInfo.skills || null, jsInfo.education || null, jsInfo.experience || null
         ]);
 
@@ -198,11 +235,15 @@ const applyJob = async (req, res, next) => {
         auditService.log({
             userId: req.user.id,
             action: 'JOB_APPLICATION',
-            details: `JobSeeker (${user[0].name}) applied for Job ID: ${jobId}`,
+            details: `JobSeeker (${userName}) applied for Job ID: ${jobId}`,
             ipAddress: req.ip || req.socket?.remoteAddress
         });
 
-        res.json({ success: true, message: 'Application submitted successfully.' });
+        res.json({
+            success: true,
+            message: 'Application submitted successfully.',
+            data: { id: insertResult.insertId, job_id: jobId, status: 'Under Review' }
+        });
     } catch (err) {
         await connection.rollback();
         next(err);
@@ -221,9 +262,9 @@ const getAppliedJobs = async (req, res, next) => {
             FROM job_applications ja
             JOIN jobs j ON ja.job_id = j.id
             LEFT JOIN employers e ON j.employer_id = e.id
-            WHERE ja.jobseeker_id = ?
+            WHERE ja.jobseeker_id = ? OR ja.email = ?
             ORDER BY ja.applied_at DESC
-        `, [req.user.id]);
+        `, [req.user.id, req.user.email || '']);
 
         const formatted = rows.map(app => ({
             id: app.id,
@@ -255,14 +296,14 @@ const getAppliedJobs = async (req, res, next) => {
 const withdrawApplication = async (req, res, next) => {
     try {
         const { id } = req.params;
-        const [app] = await db.query('SELECT * FROM job_applications WHERE id = ? AND jobseeker_id = ?', [id, req.user.id]);
+        const [app] = await db.query('SELECT * FROM job_applications WHERE (id = ? OR job_id = ?) AND (jobseeker_id = ? OR email = ?)', [id, id, req.user.id, req.user.email || '']);
 
         if (app.length === 0) return res.status(404).json({ success: false, message: 'Application not found' });
 
         // Decrement applicants count
         await db.query('UPDATE jobs SET applicants_count = GREATEST(0, applicants_count - 1) WHERE id = ?', [app[0].job_id]);
 
-        await db.query('DELETE FROM job_applications WHERE id = ?', [id]);
+        await db.query('DELETE FROM job_applications WHERE id = ?', [app[0].id]);
 
         auditService.log({
             userId: req.user.id,
@@ -271,7 +312,7 @@ const withdrawApplication = async (req, res, next) => {
             ipAddress: req.ip || req.socket?.remoteAddress
         });
 
-        res.json({ success: true, message: 'Application withdrawn successfully' });
+        res.json({ success: true, message: 'Application withdrawn successfully.' });
     } catch (err) { next(err); }
 };
 

@@ -32,6 +32,7 @@ router.delete('/jobs/:id', employerController.deleteJob);
 // Job Applications
 router.get('/jobs/:jobId/applications', employerController.getJobApplications);
 router.put('/applications/:applicationId/status', employerController.updateApplicationStatus);
+router.delete('/applications/:applicationId', employerController.deleteApplication);
 
 // Employee Management
 router.get('/employees', employerController.getMyEmployees);

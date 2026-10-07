@@ -410,22 +410,32 @@ const getJobApplications = async (req, res, next) => {
     }
 
     const [applications] = await db.query(`
-        SELECT ja.*, u.id as u_id, u.name as u_name, u.email as u_email
+        SELECT ja.*, 
+               u.id as u_id, u.name as u_name, u.email as u_email,
+               js.name as js_name, js.phone as js_phone
         FROM job_applications ja
-        JOIN users u ON ja.jobseeker_id = u.id
-        WHERE ja.job_id = ?
-  ORDER BY ja.applied_at DESC
+        LEFT JOIN users u ON ja.jobseeker_id = u.id
+        LEFT JOIN job_seekers js ON js.user_id = u.id
+        WHERE ja.job_id = ? AND (ja.status IS NULL OR ja.status != 'Withdrawn')
+        ORDER BY ja.applied_at DESC
     `, [jobId]);
 
-    const formatted = applications.map(a => ({
-      ...a,
-      jobseeker: {
-        id: a.u_id, // or job_seeker_id which is in 'a'
-        name: a.u_name,
-        email: a.u_email
-      },
-      u_id: undefined, u_name: undefined, u_email: undefined
-    }));
+    const formatted = applications.map(a => {
+      let displayName = a.applicant_name;
+      if (!displayName || displayName === 'Job Seeker User' || displayName === 'Applicant') {
+        displayName = a.js_name || a.u_name || 'Applicant';
+      }
+      return {
+        ...a,
+        applicant_name: displayName,
+        jobseeker: {
+          id: a.u_id,
+          name: displayName,
+          email: a.email || a.u_email
+        },
+        u_id: undefined, u_name: undefined, u_email: undefined
+      };
+    });
 
     res.json({
       success: true,
@@ -436,9 +446,6 @@ const getJobApplications = async (req, res, next) => {
   }
 };
 
-/**
- * Update Application Status
- */
 /**
  * Update Application Status
  */
@@ -482,6 +489,22 @@ const updateApplicationStatus = async (req, res, next) => {
       success: true,
       message: 'Application status updated successfully.',
       data: updated[0],
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * Delete / Remove Application
+ */
+const deleteApplication = async (req, res, next) => {
+  try {
+    const { applicationId } = req.params;
+    await db.query('DELETE FROM job_applications WHERE id = ?', [applicationId]);
+    res.json({
+      success: true,
+      message: 'Application removed successfully.'
     });
   } catch (error) {
     next(error);
@@ -2002,6 +2025,7 @@ module.exports = {
   deleteJob,
   getJobApplications,
   updateApplicationStatus,
+  deleteApplication,
   getCreditBalance,
   getTransactions,
   getBeneficiaries,
