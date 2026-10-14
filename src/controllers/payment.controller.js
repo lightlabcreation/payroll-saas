@@ -324,15 +324,25 @@ const verifyAndRegister = async (req, res, next) => {
     await connection.query('UPDATE users SET company_id = ? WHERE id = ?', [employerId, userId]);
 
     // 5. Activate Subscription
-    const startDate = new Date();
-    const duration = plan?.duration_months || 1;
-    const endDate = new Date(startDate);
-    endDate.setMonth(endDate.getMonth() + duration);
+    const now = new Date();
+    const startDateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const isFreeTrial = Number(plan_id) === 1 || String(planName).toUpperCase().includes('TRIAL');
+
+    let endDateStr;
+    if (isFreeTrial) {
+      const endObj = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+      endDateStr = `${endObj.getFullYear()}-${String(endObj.getMonth() + 1).padStart(2, '0')}-${String(endObj.getDate()).padStart(2, '0')}`;
+    } else {
+      const duration = plan?.duration_months || 1;
+      const endPaid = new Date(now);
+      endPaid.setMonth(endPaid.getMonth() + duration);
+      endDateStr = `${endPaid.getFullYear()}-${String(endPaid.getMonth() + 1).padStart(2, '0')}-${String(endPaid.getDate()).padStart(2, '0')}`;
+    }
 
     const [subRes] = await connection.query(
       `INSERT INTO subscriptions (employer_id, plan_id, start_date, end_date, status, auto_renew, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'active', 1, NOW(), NOW())`,
-      [employerId, plan_id, startDate, endDate]
+       VALUES (?, ?, ?, ?, 'active', ?, NOW(), NOW())`,
+      [employerId, plan_id, startDateStr, endDateStr, isFreeTrial ? 0 : 1]
     );
 
     await connection.commit();

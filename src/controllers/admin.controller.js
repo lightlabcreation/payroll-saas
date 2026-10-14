@@ -1472,8 +1472,41 @@ const getMySubscription = async (req, res, next) => {
     // Format response to match expected structure (nested plan object)
     let data = null;
     if (subscription) {
+      // Normalize start_date & end_date to clean YYYY-MM-DD
+      const toDateOnly = (val) => {
+        if (!val) return val;
+        if (typeof val === 'string' && val.includes('T')) return val.split('T')[0];
+        if (val instanceof Date) {
+          const y = val.getFullYear();
+          const m = String(val.getMonth() + 1).padStart(2, '0');
+          const d = String(val.getDate()).padStart(2, '0');
+          return `${y}-${m}-${d}`;
+        }
+        return val;
+      };
+
+      const isTrial = subscription.plan_id === 1 || String(subscription.plan_name).toUpperCase().includes('TRIAL');
+
+      // If user is on Free Trial and this is their first login session, start trial from today's login date
+      if (isTrial && req.user && req.user.id) {
+        const [uRows] = await db.query('SELECT last_login FROM users WHERE id = ?', [req.user.id]);
+        if (uRows.length > 0 && !uRows[0].last_login) {
+          const now = new Date();
+          const startDateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+          const endObj = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+          const endDateStr = `${endObj.getFullYear()}-${String(endObj.getMonth() + 1).padStart(2, '0')}-${String(endObj.getDate()).padStart(2, '0')}`;
+
+          await db.query('UPDATE subscriptions SET start_date = ?, end_date = ? WHERE id = ?', [startDateStr, endDateStr, subscription.id]);
+          await db.query('UPDATE users SET last_login = NOW() WHERE id = ?', [req.user.id]);
+          subscription.start_date = startDateStr;
+          subscription.end_date = endDateStr;
+        }
+      }
+
       data = {
         ...subscription,
+        start_date: toDateOnly(subscription.start_date),
+        end_date: toDateOnly(subscription.end_date),
         plan: {
           name: subscription.plan_name,
           price: subscription.plan_price,
@@ -1905,12 +1938,31 @@ const uploadTrainingMaterial = async (req, res, next) => {
     const fileSize = req.file ? `${Math.round(req.file.size / 1024)} KB` : (req.body.fileSize && req.body.fileSize !== '0' && req.body.fileSize !== 'N/A' ? req.body.fileSize : '36 KB');
     const fileType = req.file ? (req.file.mimetype.includes('pdf') ? 'PDF' : req.file.mimetype.includes('image') ? 'Image' : 'Document') : 'Document';
 
-    await db.query(
+    const [insertResult] = await db.query(
       'INSERT INTO course_materials (training_id, file_name, file_url, file_type, file_size, uploaded_at) VALUES (?, ?, ?, ?, ?, NOW())',
       [finalCourseId, finalFileName, fileUrl, fileType, fileSize]
     );
 
-    res.json({ success: true, message: 'Material uploaded successfully.' });
+    const [newRow] = await db.query(`
+      SELECT tm.*, t.title as course_title 
+      FROM course_materials tm
+      LEFT JOIN training_courses t ON tm.training_id = t.id
+      WHERE tm.id = ?
+    `, [insertResult.insertId]);
+
+    res.json({
+      success: true,
+      message: 'Material uploaded successfully.',
+      data: newRow && newRow[0] ? newRow[0] : {
+        id: insertResult.insertId,
+        training_id: parseInt(targetTrainingId),
+        file_name: finalFileName,
+        file_url: fileUrl,
+        file_type: fileType,
+        file_size: fileSize,
+        uploaded_at: new Date()
+      }
+    });
   } catch (error) {
     next(error);
   }

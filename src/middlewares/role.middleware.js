@@ -46,7 +46,7 @@ const getDashboardRoute = (role) => {
     'employer': '/employer/dashboard',
     'employee': '/employee/dashboard',
     'vendor': '/vendor/dashboard',
-    'jobseeker': '/jobseeker/dashboard'
+    'jobseeker': '/job-portal/dashboard'
   };
 
   return dashboardMap[role] || '/';
