@@ -167,11 +167,19 @@ const updateContractDetails = async (req, res, next) => {
 const getMyPayments = async (req, res, next) => {
   try {
     const [rows] = await db.query(`
-      SELECT v.*, emp.company_name as emp_company_name, u.name as emp_user_name
+      SELECT v.*, 
+             emp.company_name as emp_company_name, 
+             u.name as emp_user_name,
+             co.company_name as co_company_name,
+             admin_u.name as admin_user_name
       FROM vendors v
-      LEFT JOIN employers emp ON (v.employer_id = emp.id OR v.company_id = emp.company_id)
+      LEFT JOIN employers emp ON (v.employer_id = emp.id OR (v.company_id IS NOT NULL AND v.company_id = emp.company_id))
       LEFT JOIN users u ON emp.user_id = u.id
+      LEFT JOIN companies co ON (v.company_id = co.id OR emp.company_id = co.id)
+      LEFT JOIN users admin_u ON (co.id = admin_u.company_id AND admin_u.role = 'admin')
       WHERE v.user_id = ?
+      ORDER BY (v.employer_id = emp.id) DESC
+      LIMIT 1
     `, [req.user.id]);
     const vendor = rows[0];
 
@@ -193,7 +201,25 @@ const getMyPayments = async (req, res, next) => {
     `, [req.user.id]);
 
     // Determine actual employer name dynamically
-    const actualEmployerName = vendor.emp_company_name || vendor.emp_user_name || (transactions.length > 0 ? (transactions[0].emp_company_name || transactions[0].emp_user_name) : null) || 'Employer';
+    let actualEmployerName = vendor.emp_company_name || vendor.emp_user_name || vendor.co_company_name || vendor.admin_user_name;
+    if (!actualEmployerName && transactions.length > 0) {
+      actualEmployerName = transactions[0].emp_company_name || transactions[0].emp_user_name;
+    }
+    if (!actualEmployerName) {
+      // Fallback: check creator from audit logs
+      try {
+        const [audit] = await db.query(
+          "SELECT u.name, u.email FROM audit_logs a JOIN users u ON a.user_id = u.id WHERE a.action = 'CREATE_VENDOR' AND a.details LIKE ? ORDER BY a.id DESC LIMIT 1",
+          [`%${req.user.email}%`]
+        );
+        if (audit.length > 0 && audit[0].name) {
+          actualEmployerName = audit[0].name;
+        }
+      } catch (err) {}
+    }
+    if (!actualEmployerName || actualEmployerName === 'Main Employer') {
+      actualEmployerName = 'Employer';
+    }
 
     // Calculate totals
     const totalPaid = transactions.reduce((sum, t) => sum + parseFloat(t.amount || 0), 0);
@@ -230,7 +256,7 @@ const getMyPayments = async (req, res, next) => {
         })),
         contracts: [
           {
-            id: 'CON-001',
+            id: 'CON-' + String(vendor.id || '001').padStart(3, '0'),
             employer: actualEmployerName,
             amount: totalPaid,
             startDate: vendor.created_at,

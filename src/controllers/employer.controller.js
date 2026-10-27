@@ -169,9 +169,9 @@ const getAllJobs = async (req, res, next) => {
   try {
     const [empRows] = await db.query('SELECT * FROM employers WHERE user_id = ?', [req.user.id]);
     if (empRows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'Employer profile not found.',
+      return res.json({
+        success: true,
+        data: [],
       });
     }
     const employer = empRows[0];
@@ -187,17 +187,14 @@ const getAllJobs = async (req, res, next) => {
 
     if (search) {
       sql += ' AND (title LIKE ? OR description LIKE ?)';
-      params.push(`% ${search}% `, ` % ${search}% `);
+      params.push(`%${search}%`, `%${search}%`);
     }
 
     sql += ' ORDER BY created_at DESC';
 
     const [jobs] = await db.query(sql, params);
 
-    // Fetch applications count/details for each job?
-    // The previous implementation included specific application attributes.
-    // For list view, usually just count is enough or maybe list of IDs.
-    // Let's attach application summaries.
+    // Attach applications and employer details
     const jobIds = jobs.map(j => j.id);
     let appMap = {};
     if (jobIds.length > 0) {
@@ -210,6 +207,11 @@ const getAllJobs = async (req, res, next) => {
 
     const formatted = jobs.map(j => ({
       ...j,
+      employer: {
+        id: employer.id,
+        company_name: employer.company_name || 'My Company',
+        company_logo: employer.company_logo || null
+      },
       applications: appMap[j.id] || []
     }));
 

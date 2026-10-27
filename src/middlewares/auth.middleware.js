@@ -66,6 +66,37 @@ const authenticate = async (req, res, next) => {
       }
     }
 
+    // If user is admin, resolve company_id if not present
+    if (user.role === 'admin' && !user.company_id) {
+      try {
+        const [admRows] = await db.query('SELECT id FROM admins WHERE user_id = ? LIMIT 1', [user.id]);
+        let compId = null;
+        if (admRows.length > 0) {
+          const [empRows] = await db.query('SELECT id FROM employers WHERE admin_id = ? LIMIT 1', [admRows[0].id]);
+          if (empRows.length > 0) compId = empRows[0].id;
+          else {
+            const [coRows] = await db.query('SELECT id FROM companies WHERE admin_id = ? LIMIT 1', [admRows[0].id]);
+            if (coRows.length > 0) compId = coRows[0].id;
+          }
+        }
+        if (!compId) {
+          const [empRows] = await db.query('SELECT id FROM employers WHERE user_id = ? LIMIT 1', [user.id]);
+          if (empRows.length > 0) compId = empRows[0].id;
+          else {
+            const [coRows] = await db.query('SELECT id FROM companies WHERE user_id = ? LIMIT 1', [user.id]);
+            if (coRows.length > 0) compId = coRows[0].id;
+          }
+        }
+        if (compId) {
+          user.company_id = compId;
+          req.user.company_id = compId;
+          db.query('UPDATE users SET company_id = ? WHERE id = ?', [compId, user.id]).catch(() => {});
+        }
+      } catch (e) {
+        console.warn('[AUTH_MIDDLEWARE] Failed to auto-resolve admin company_id:', e.message);
+      }
+    }
+
 
     next();
   } catch (error) {

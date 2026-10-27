@@ -6,22 +6,36 @@ const emailService = require('../services/email.service');
  */
 const getAllJobs = async (req, res, next) => {
   try {
-    const { search, location, job_type, status, page = 1, limit = 10 } = req.query;
+    const { search, location, job_type, status, employer_id, company_id, page = 1, limit = 10 } = req.query;
 
     let query = `
             SELECT j.*, 
                    COALESCE(c.company_name, e.company_name) as display_company_name, 
                    COALESCE(c.company_logo, e.company_logo) as display_company_logo
             FROM jobs j 
-            LEFT JOIN employers e ON j.employer_id = e.id 
+            JOIN employers e ON j.employer_id = e.id 
+            JOIN users u ON e.user_id = u.id
             LEFT JOIN companies c ON e.company_id = c.id
-            WHERE 1=1
+            WHERE u.status = 'active'
+            AND LOWER(COALESCE(c.company_name, e.company_name, '')) NOT IN ('madhav', "anurag's company", 'employer')
+            AND LOWER(u.name) NOT IN ('madhav', 'anurag', 'employer')
+            AND j.id NOT IN (1, 3, 4, 5)
         `;
     const params = [];
 
     // Filter by Status (Default Active)
     query += ' AND j.status = ?';
     params.push(status || 'Active');
+
+    if (employer_id) {
+      query += ' AND j.employer_id = ?';
+      params.push(employer_id);
+    }
+
+    if (company_id) {
+      query += ' AND (e.company_id = ? OR c.id = ?)';
+      params.push(company_id, company_id);
+    }
 
     if (search) {
       query += ' AND (j.title LIKE ? OR j.description LIKE ? OR j.skills LIKE ?)';
@@ -89,9 +103,12 @@ const getJobById = async (req, res, next) => {
                    COALESCE(c.company_logo, e.company_logo) as display_company_logo, 
                    COALESCE(c.company_address, e.company_address) as display_company_address 
             FROM jobs j 
-            LEFT JOIN employers e ON j.employer_id = e.id 
+            JOIN employers e ON j.employer_id = e.id 
+            JOIN users u ON e.user_id = u.id
             LEFT JOIN companies c ON e.company_id = c.id
-            WHERE j.id = ?
+            WHERE j.id = ? AND u.status = 'active'
+            AND LOWER(COALESCE(c.company_name, e.company_name, '')) NOT IN ('madhav', "anurag's company", 'employer')
+            AND j.id NOT IN (1, 3, 4, 5)
         `;
     const [rows] = await db.query(query, [id]);
     const job = rows[0];

@@ -773,16 +773,37 @@ const getMyApplications = async (req, res, next) => {
 
 const getAllJobs = async (req, res, next) => {
   try {
+    const userId = req.user.id;
+
+    // Find employee's employer and company
+    const [empRows] = await db.query(
+      'SELECT id, employer_id, company_id FROM employees WHERE user_id = ?',
+      [userId]
+    );
+
+    const employee = empRows[0];
+    const employerId = employee?.employer_id || null;
+    const companyId = employee?.company_id || req.user.company_id || null;
+
+    if (!employerId && !companyId) {
+      return res.json({ success: true, data: [] });
+    }
+
     const [rows] = await db.query(`
-      SELECT j.*, e.company_name
+      SELECT j.*, COALESCE(c.company_name, e.company_name) as company_name
       FROM jobs j
       JOIN employers e ON j.employer_id = e.id
+      JOIN users u ON e.user_id = u.id
+      LEFT JOIN companies c ON e.company_id = c.id
       WHERE j.status = 'Active'
+      AND u.status = 'active'
+      AND (j.employer_id = ? OR e.company_id = ?)
       AND j.id NOT IN (
-        SELECT job_id FROM job_applications WHERE jobseeker_id = ? AND status != 'Withdrawn'
+        SELECT job_id FROM job_applications WHERE (jobseeker_id = ? OR employee_id = ?) AND status != 'Withdrawn'
       )
       ORDER BY j.created_at DESC
-    `, [req.user.id]);
+    `, [employerId, companyId, userId, employee?.id || 0]);
+
     res.json({ success: true, data: rows });
   } catch (err) { next(err); }
 };

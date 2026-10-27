@@ -12,7 +12,7 @@ const handleMaterialUpload = (req, res, next) => {
 
 // All routes require authentication and admin or employer role
 router.use(authenticate);
-router.use(authorize('admin', 'employer'));
+router.use(authorize('admin', 'employer', 'superadmin'));
 
 router.get('/dashboard', adminController.getDashboard);
 router.get('/dashboard-summary', adminController.getDashboardSummary);

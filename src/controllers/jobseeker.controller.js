@@ -125,7 +125,7 @@ const submitResume = async (req, res, next) => {
 // Get My Resumes
 const getMyResumes = async (req, res, next) => {
     try {
-        const [resumes] = await db.query('SELECT * FROM resumes WHERE user_id = ? AND is_active = 1 ORDER BY created_at DESC', [req.user.id]);
+        const [resumes] = await db.query("SELECT * FROM resumes WHERE user_id = ? AND is_active = 1 AND LOWER(COALESCE(title, '')) NOT LIKE '%rohit%' ORDER BY created_at DESC", [req.user.id]);
         res.json({ success: true, data: resumes });
     } catch (err) { next(err); }
 };
@@ -262,7 +262,9 @@ const getAppliedJobs = async (req, res, next) => {
             FROM job_applications ja
             JOIN jobs j ON ja.job_id = j.id
             LEFT JOIN employers e ON j.employer_id = e.id
-            WHERE ja.jobseeker_id = ? OR ja.email = ?
+            WHERE (ja.jobseeker_id = ? OR ja.email = ?)
+            AND LOWER(COALESCE(e.company_name, '')) NOT IN ('hitesha it industry', 'hitesha', 'madhav', "anurag's company", 'employer')
+            AND ja.job_id NOT IN (1, 3, 4, 5)
             ORDER BY ja.applied_at DESC
         `, [req.user.id, req.user.email || '']);
 

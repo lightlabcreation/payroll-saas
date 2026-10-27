@@ -1150,17 +1150,29 @@ const createVendor = async (req, res, next) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
+    const adminCompanyId = req.user.company_id || null;
+    let defaultEmployerId = null;
+    if (adminCompanyId) {
+      const [employerRows] = await connection.query(
+        'SELECT id FROM employers WHERE company_id = ? ORDER BY id ASC LIMIT 1',
+        [adminCompanyId]
+      );
+      if (employerRows.length > 0) {
+        defaultEmployerId = employerRows[0].id;
+      }
+    }
+
     const [userResult] = await connection.query(
-      `INSERT INTO users(name, email, password, role, status, created_at, updated_at)
-    VALUES(?, ?, ?, 'vendor', 'active', NOW(), NOW())`,
-      [name, email, hashedPassword]
+      `INSERT INTO users(name, email, password, role, company_id, status, created_at, updated_at)
+    VALUES(?, ?, ?, 'vendor', ?, 'active', NOW(), NOW())`,
+      [name, email, hashedPassword, adminCompanyId]
     );
     const userId = userResult.insertId;
 
     const [vendorResult] = await connection.query(
-      `INSERT INTO vendors(user_id, company_name, service_type, payment_status, created_at, updated_at)
-    VALUES(?, ?, ?, 'pending', NOW(), NOW())`, // assuming default payment status
-      [userId, company_name, services]
+      `INSERT INTO vendors(user_id, company_id, employer_id, company_name, contact_person, email, service_type, payment_status, status, created_at, updated_at)
+    VALUES(?, ?, ?, ?, ?, ?, ?, 'pending', 'active', NOW(), NOW())`,
+      [userId, adminCompanyId, defaultEmployerId, company_name || name, name, email, services]
     );
 
     await connection.commit();
@@ -1582,28 +1594,40 @@ const getSubscriptionStatus = getMySubscription;
  */
 const getAllJobs = async (req, res, next) => {
   try {
-    const adminCompanyId = req.user.company_id;
-    if (!adminCompanyId) return res.status(400).json({ success: false, message: 'Admin company not found.' });
+    let adminCompanyId = req.user.company_id || null;
+    if (!adminCompanyId) {
+      const [comp] = await db.query('SELECT id FROM companies WHERE admin_id = ? OR user_id = ? LIMIT 1', [req.user.id, req.user.id]);
+      if (comp.length > 0) adminCompanyId = comp[0].id;
+    }
 
-    // Get all employers under this company
-    const [employers] = await db.query('SELECT id FROM employers WHERE company_id = ?', [adminCompanyId]); // employers table has company_id? yes based on createEmployer
-    // Wait, createEmployer inserts into `employers` with `company_id`.
-    // Wait, createEmployer uses `INSERT INTO employers(user_id, company_id...)`.
-    // So yes, we can filter by company_id.
+    const isSuperAdmin = req.user.role === 'superadmin';
+    let sql = '';
+    let params = [];
 
-    // However, we can also join directly:
-    // SELECT j.* FROM jobs j JOIN employers e ON j.employer_id = e.id WHERE e.company_id = ?
+    if (isSuperAdmin) {
+      sql = `
+        SELECT j.*, e.company_name as emp_company_name, u.name as posted_by_name
+        FROM jobs j
+        JOIN employers e ON j.employer_id = e.id
+        JOIN users u ON e.user_id = u.id
+        ORDER BY j.created_at DESC
+      `;
+    } else {
+      sql = `
+        SELECT j.*, e.company_name as emp_company_name, u.name as posted_by_name
+        FROM jobs j
+        JOIN employers e ON j.employer_id = e.id
+        JOIN users u ON e.user_id = u.id
+        WHERE (? IS NOT NULL AND e.company_id = ?)
+           OR e.user_id = ?
+           OR u.id = ?
+           OR e.created_by = ?
+        ORDER BY j.created_at DESC
+      `;
+      params = [adminCompanyId, adminCompanyId, req.user.id, req.user.id, req.user.id];
+    }
 
-    const sql = `
-      SELECT j.*, e.company_name as emp_company_name, u.name as posted_by_name
-      FROM jobs j
-      JOIN employers e ON j.employer_id = e.id
-      JOIN users u ON e.user_id = u.id
-      WHERE e.company_id = ?
-      ORDER BY j.created_at DESC
-    `;
-
-    const [jobs] = await db.query(sql, [adminCompanyId]);
+    const [jobs] = await db.query(sql, params);
 
     // Format
     const formatted = jobs.map(j => ({
@@ -1701,18 +1725,24 @@ const updateJob = async (req, res, next) => {
 const deleteJob = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const adminCompanyId = req.user.company_id;
+    const adminCompanyId = req.user.company_id || null;
 
-    // Verify job belongs to admin's company
-    const [jobRows] = await db.query(`
-      SELECT j.id 
-      FROM jobs j 
-      JOIN employers e ON j.employer_id = e.id 
-      WHERE j.id = ? AND e.company_id = ?
-    `, [id, adminCompanyId]);
+    let canDelete = false;
+    if (req.user.role === 'superadmin') {
+      canDelete = true;
+    } else {
+      const [jobRows] = await db.query(`
+        SELECT j.id 
+        FROM jobs j 
+        LEFT JOIN employers e ON j.employer_id = e.id 
+        WHERE j.id = ? AND (e.company_id = ? OR e.user_id = ? OR ? IS NULL)
+      `, [id, adminCompanyId, req.user.id, adminCompanyId]);
+      if (jobRows.length > 0) canDelete = true;
+    }
 
-    if (jobRows.length === 0) return res.status(404).json({ success: false, message: 'Job not found or permission denied.' });
+    if (!canDelete) return res.status(404).json({ success: false, message: 'Job not found or permission denied.' });
 
+    await db.query('DELETE FROM job_applications WHERE job_id = ?', [id]);
     await db.query('DELETE FROM jobs WHERE id = ?', [id]);
     res.json({ success: true, message: 'Job deleted.' });
 
@@ -1837,7 +1867,7 @@ const getTrainings = async (req, res, next) => {
         (SELECT COUNT(*) FROM course_assignments ta WHERE ta.training_id = t.id AND ta.status = 'Completed') as completed
       FROM training_courses t
       LEFT JOIN employers e ON t.employer_id = e.id
-      WHERE (e.company_id = ? OR e.user_id = ? OR t.employer_id IN (SELECT id FROM employers WHERE company_id = ? OR user_id = ?) OR t.employer_id IS NULL)
+      WHERE (e.company_id = ? OR e.user_id = ? OR t.employer_id IN (SELECT id FROM employers WHERE company_id = ? OR user_id = ?))
       ORDER BY t.created_at DESC
     `, [adminCompanyId, req.user.id, adminCompanyId, req.user.id]);
 
@@ -1973,12 +2003,15 @@ const uploadTrainingMaterial = async (req, res, next) => {
  */
 const getTrainingMaterials = async (req, res, next) => {
   try {
+    const adminCompanyId = req.user.company_id || null;
     const [materials] = await db.query(`
-            SELECT tm.*, t.title as course_title 
-            FROM course_materials tm
-            LEFT JOIN training_courses t ON tm.training_id = t.id
-            ORDER BY tm.uploaded_at DESC
-        `);
+      SELECT tm.*, t.title as course_title 
+      FROM course_materials tm
+      JOIN training_courses t ON tm.training_id = t.id
+      LEFT JOIN employers e ON t.employer_id = e.id
+      WHERE (e.company_id = ? OR e.user_id = ? OR t.employer_id IN (SELECT id FROM employers WHERE company_id = ? OR user_id = ?))
+      ORDER BY tm.uploaded_at DESC
+    `, [adminCompanyId, req.user.id, adminCompanyId, req.user.id]);
     res.json({ success: true, data: materials });
   } catch (error) {
     next(error);
@@ -2422,29 +2455,73 @@ const parseSalary = (salaryInput) => {
 
 const getJobVacancies = async (req, res, next) => {
   try {
-    const adminCompanyId = req.user.company_id;
+    let adminCompanyId = req.user.company_id || null;
+    if (!adminCompanyId) {
+      const [comp] = await db.query('SELECT id FROM companies WHERE admin_id = ? OR user_id = ? LIMIT 1', [req.user.id, req.user.id]);
+      if (comp.length > 0) adminCompanyId = comp[0].id;
+    }
+
+    // Query real jobs posted by employers
+    const [jobs] = await db.query(`
+      SELECT j.*, e.company_name as emp_company_name, u.name as posted_by_name
+      FROM jobs j
+      JOIN employers e ON j.employer_id = e.id
+      JOIN users u ON e.user_id = u.id
+      WHERE (? IS NOT NULL AND e.company_id = ?)
+         OR e.user_id = ?
+         OR u.id = ?
+         OR e.created_by = ?
+      ORDER BY j.created_at DESC
+    `, [adminCompanyId, adminCompanyId, req.user.id, req.user.id, req.user.id]);
+
     const [vacancies] = await db.query(
-      'SELECT * FROM job_vacancies WHERE company_id = ? OR company_id IS NULL ORDER BY created_at DESC',
-      [adminCompanyId]
+      'SELECT * FROM job_vacancies WHERE (company_id = ? OR created_by = ?) ORDER BY created_at DESC',
+      [adminCompanyId, req.user.id]
     );
 
-    const formatted = vacancies.map(v => {
+    const merged = jobs.map(j => {
       let displaySalary = '';
-      if (v.salary_min !== null && v.salary_min !== undefined && v.salary_max !== null && v.salary_max !== undefined) {
-        displaySalary = `${parseFloat(v.salary_min)} - ${parseFloat(v.salary_max)}`;
-      } else if (v.salary_min !== null && v.salary_min !== undefined) {
-        displaySalary = `${parseFloat(v.salary_min)}`;
-      } else if (v.salary_max !== null && v.salary_max !== undefined) {
-        displaySalary = `Up to ${parseFloat(v.salary_max)}`;
+      if (j.salary_min && j.salary_max) {
+        displaySalary = `${parseFloat(j.salary_min)} - ${parseFloat(j.salary_max)}`;
+      } else if (j.salary_min) {
+        displaySalary = `${parseFloat(j.salary_min)}`;
       }
-
       return {
-        ...v,
-        salary: displaySalary
+        id: j.id,
+        title: j.title,
+        department: j.department || 'General',
+        location: j.location,
+        description: j.description,
+        status: j.status,
+        salary: displaySalary,
+        employer_name: j.emp_company_name || j.posted_by_name || 'Employer',
+        job_type: j.job_type,
+        experience_required: j.experience || j.experience_required || 'N/A',
+        expiry_date: j.expiry_date,
+        skills: j.skills || j.requirements || '',
+        created_at: j.created_at,
+        applicants_count: j.applicants_count || 0
       };
     });
 
-    res.json({ success: true, data: formatted });
+    vacancies.forEach(v => {
+      if (!merged.some(m => m.id === v.id || m.title === v.title)) {
+        let displaySalary = '';
+        if (v.salary_min !== null && v.salary_min !== undefined && v.salary_max !== null && v.salary_max !== undefined) {
+          displaySalary = `${parseFloat(v.salary_min)} - ${parseFloat(v.salary_max)}`;
+        } else if (v.salary_min !== null && v.salary_min !== undefined) {
+          displaySalary = `${parseFloat(v.salary_min)}`;
+        } else if (v.salary_max !== null && v.salary_max !== undefined) {
+          displaySalary = `Up to ${parseFloat(v.salary_max)}`;
+        }
+        merged.push({
+          ...v,
+          salary: displaySalary
+        });
+      }
+    });
+
+    res.json({ success: true, data: merged });
   } catch (error) {
     next(error);
   }
@@ -2834,11 +2911,44 @@ const toggleUserStatus = async (req, res, next) => {
  * ============================================================================
  */
 
+const getResolvedAdminCompanyId = async (user) => {
+  if (user?.company_id) return user.company_id;
+  if (!user?.id) return null;
+  try {
+    const [admRows] = await db.query('SELECT id FROM admins WHERE user_id = ? LIMIT 1', [user.id]);
+    let compId = null;
+    if (admRows.length > 0) {
+      const [empRows] = await db.query('SELECT id FROM employers WHERE admin_id = ? LIMIT 1', [admRows[0].id]);
+      if (empRows.length > 0) compId = empRows[0].id;
+      else {
+        const [coRows] = await db.query('SELECT id FROM companies WHERE admin_id = ? LIMIT 1', [admRows[0].id]);
+        if (coRows.length > 0) compId = coRows[0].id;
+      }
+    }
+    if (!compId) {
+      const [empRows] = await db.query('SELECT id FROM employers WHERE user_id = ? LIMIT 1', [user.id]);
+      if (empRows.length > 0) compId = empRows[0].id;
+      else {
+        const [coRows] = await db.query('SELECT id FROM companies WHERE user_id = ? LIMIT 1', [user.id]);
+        if (coRows.length > 0) compId = coRows[0].id;
+      }
+    }
+    if (compId) {
+      user.company_id = compId;
+      db.query('UPDATE users SET company_id = ? WHERE id = ?', [compId, user.id]).catch(() => {});
+    }
+    return compId;
+  } catch (err) {
+    return null;
+  }
+};
+
 /**
  * Get Paginated Audit Logs for Admin
  */
 const getAuditLogs = async (req, res, next) => {
   try {
+    const adminCompanyId = await getResolvedAdminCompanyId(req.user);
     const { page, limit, search, action, startDate, endDate, userId, role } = req.query;
     const result = await auditService.getAuditLogs({
       page,
@@ -2848,7 +2958,9 @@ const getAuditLogs = async (req, res, next) => {
       startDate,
       endDate,
       userId,
-      role
+      role,
+      companyId: adminCompanyId,
+      currentUserId: req.user?.id || null
     });
 
     res.json({
@@ -2866,7 +2978,8 @@ const getAuditLogs = async (req, res, next) => {
  */
 const getAuditStats = async (req, res, next) => {
   try {
-    const stats = await auditService.getStats();
+    const adminCompanyId = await getResolvedAdminCompanyId(req.user);
+    const stats = await auditService.getStats(true, adminCompanyId, req.user?.id || null);
     res.json({
       success: true,
       data: stats
@@ -2881,7 +2994,8 @@ const getAuditStats = async (req, res, next) => {
  */
 const getAuditActions = async (req, res, next) => {
   try {
-    const actions = await auditService.getUniqueActions();
+    const adminCompanyId = await getResolvedAdminCompanyId(req.user);
+    const actions = await auditService.getUniqueActions(true, adminCompanyId, req.user?.id || null);
     res.json({
       success: true,
       data: actions

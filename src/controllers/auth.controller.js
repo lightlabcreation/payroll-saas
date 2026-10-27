@@ -98,6 +98,64 @@ const register = async (req, res, next) => {
       } catch (subErr) {
         console.warn('Subscription auto-assign skipped:', subErr.message);
       }
+    } else if (userRole === 'admin') {
+      const companyName = (req.body.company_name && req.body.company_name.trim()) || `${name.trim()}'s Organization`;
+      let adminRecordId = null;
+      try {
+        const [adminRec] = await connection.query(
+          `INSERT INTO admins (user_id, department, created_at, updated_at)
+           VALUES (?, 'Executive', NOW(), NOW())`,
+          [userId]
+        );
+        adminRecordId = adminRec.insertId;
+      } catch (admErr) {
+        console.warn('Admins record creation note:', admErr.message);
+      }
+
+      let companyId = null;
+      try {
+        const [compResult] = await connection.query(
+          `INSERT INTO companies (user_id, admin_id, company_name, status, created_at, updated_at)
+           VALUES (?, ?, ?, 'active', NOW(), NOW())`,
+          [userId, adminRecordId, companyName]
+        );
+        companyId = compResult.insertId;
+      } catch (compErr) {
+        console.warn('Companies record creation note:', compErr.message);
+      }
+
+      let employerId = null;
+      try {
+        const [empResult] = await connection.query(
+          `INSERT INTO employers (user_id, company_id, admin_id, company_name, status, created_at, updated_at)
+           VALUES (?, ?, ?, ?, 'active', NOW(), NOW())`,
+          [userId, companyId, adminRecordId, companyName]
+        );
+        employerId = empResult.insertId;
+        if (!companyId) companyId = employerId;
+      } catch (empErr) {
+        console.warn('Employers record creation note:', empErr.message);
+      }
+
+      if (companyId) {
+        await connection.query('UPDATE users SET company_id = ? WHERE id = ?', [companyId, userId]);
+      }
+
+      // Automatically assign 7-Day Free Trial Subscription
+      const now = new Date();
+      const startDateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      const endObj = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+      const endDateStr = `${endObj.getFullYear()}-${String(endObj.getMonth() + 1).padStart(2, '0')}-${String(endObj.getDate()).padStart(2, '0')}`;
+      try {
+        const targetEmpId = employerId || companyId || userId;
+        await connection.query(
+          `INSERT INTO subscriptions (employer_id, plan_id, start_date, end_date, status, auto_renew, created_at, updated_at)
+           VALUES (?, 1, ?, ?, 'active', 0, NOW(), NOW())`,
+          [targetEmpId, startDateStr, endDateStr]
+        );
+      } catch (subErr) {
+        console.warn('Subscription auto-assign skipped:', subErr.message);
+      }
     } else if (userRole === 'employee') {
       await connection.query(
         `INSERT INTO employees (user_id, status, created_at, updated_at)
