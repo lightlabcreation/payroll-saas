@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const emailService = require('../services/email.service');
 const authService = require('../services/auth.service');
 const paymentService = require('../services/payment.service');
-const { generateToken } = require('../utils/jwt');
+const { generateToken, generateTokens } = require('../utils/jwt');
 
 /**
  * 1. Create Razorpay Subscription Order
@@ -318,25 +318,41 @@ const verifyAndRegister = async (req, res, next) => {
        VALUES (?, ?, ?, ?, 'active', NOW(), NOW())`,
       [userId, adminId, company_name, planName]
     );
-    const employerId = compRes.insertId;
+    const companyId = compRes.insertId;
+
+    // Also ensure employers record is created for payroll compatibility
+    let employerId = companyId;
+    try {
+      const [empRes] = await connection.query(
+        `INSERT INTO employers (user_id, company_id, admin_id, company_name, status, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'active', NOW(), NOW())`,
+        [userId, companyId, adminId, company_name]
+      );
+      if (empRes?.insertId) {
+        employerId = empRes.insertId;
+      }
+    } catch (empErr) {
+      console.warn('Employers record insertion note:', empErr.message);
+    }
 
     // Link user to company_id
-    await connection.query('UPDATE users SET company_id = ? WHERE id = ?', [employerId, userId]);
+    await connection.query('UPDATE users SET company_id = ? WHERE id = ?', [companyId, userId]);
 
     // 5. Activate Subscription
-    const now = new Date();
-    const startDateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const startDate = new Date();
+    const startDateStr = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}-${String(startDate.getDate()).padStart(2, '0')}`;
     const isFreeTrial = Number(plan_id) === 1 || String(planName).toUpperCase().includes('TRIAL');
 
+    let endDate;
     let endDateStr;
     if (isFreeTrial) {
-      const endObj = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-      endDateStr = `${endObj.getFullYear()}-${String(endObj.getMonth() + 1).padStart(2, '0')}-${String(endObj.getDate()).padStart(2, '0')}`;
+      endDate = new Date(startDate.getTime() + 7 * 24 * 60 * 60 * 1000);
+      endDateStr = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`;
     } else {
       const duration = plan?.duration_months || 1;
-      const endPaid = new Date(now);
-      endPaid.setMonth(endPaid.getMonth() + duration);
-      endDateStr = `${endPaid.getFullYear()}-${String(endPaid.getMonth() + 1).padStart(2, '0')}-${String(endPaid.getDate()).padStart(2, '0')}`;
+      endDate = new Date(startDate);
+      endDate.setMonth(endDate.getMonth() + duration);
+      endDateStr = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`;
     }
 
     const [subRes] = await connection.query(
@@ -347,9 +363,10 @@ const verifyAndRegister = async (req, res, next) => {
 
     await connection.commit();
 
-    // Generate JWT Token
-    const userPayload = { id: userId, email: email.trim().toLowerCase(), role: 'admin', company_id: employerId };
-    const token = generateToken(userPayload);
+    // Generate JWT Tokens
+    const userPayload = { id: userId, email: email.trim().toLowerCase(), role: 'admin', company_id: companyId };
+    const tokens = generateTokens(userPayload);
+    const token = tokens.accessToken;
 
     // 6. Dispatch Email Notifications
     const formattedStartDate = startDate.toLocaleDateString();
@@ -409,9 +426,11 @@ const verifyAndRegister = async (req, res, next) => {
       success: true,
       message: 'Account created and plan subscription activated successfully!',
       data: {
-        token,
-        user: { id: userId, name, email, role: 'admin' },
-        company: { id: employerId, company_name, plan: planName, end_date: endDate }
+        token: tokens.accessToken,
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        user: { id: userId, name: cleanName, email: cleanEmail, role: 'admin' },
+        company: { id: companyId, company_name, plan: planName, end_date: endDateStr }
       }
     });
 
